@@ -11,8 +11,12 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
-import "dotenv/config";
+import { config as loadDotenv } from "dotenv";
 import pg from "pg";
+
+// Match Next.js's env precedence: .env.local wins over .env.
+loadDotenv({ path: ".env.local" });
+loadDotenv({ path: ".env" });
 
 const ENDPOINT = "https://data.cityofnewyork.us/resource/hg8x-zxpr.json";
 
