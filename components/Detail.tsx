@@ -2,13 +2,16 @@
 
 import { X, ExternalLink } from "lucide-react";
 import type { Project } from "@/lib/types";
+import Stakeholders from "./Stakeholders";
 
 interface Props {
   project: Project;
+  cityId: string;
   onClose: () => void;
+  onSelect: (projectId: string) => void;
 }
 
-export default function Detail({ project, onClose }: Props) {
+export default function Detail({ project, cityId, onClose, onSelect }: Props) {
   const u = project.units;
   // Income-tier breakdown as percentages. Skip tiers with zero units.
   const tiers: { label: string; value: number }[] = [
@@ -54,7 +57,7 @@ export default function Detail({ project, onClose }: Props) {
       >
         <div className="flex-1 min-w-0">
           <div className="text-[10px] uppercase tracking-widest font-mono text-[var(--text-3)]">
-            HPD Project · #{project.id}
+            {cityId === "sfo" ? "MOHCD" : "HPD"} Project · #{project.id}
           </div>
           <div className="text-base font-semibold text-[var(--text)] leading-tight mt-0.5">
             {project.name}
@@ -154,6 +157,19 @@ export default function Detail({ project, onClose }: Props) {
           <Meta label="Extended affordability" value={project.extendedAffordability ? "Yes" : "No"} />
           <Meta label="Prevailing wage" value={project.prevailingWage ? "Yes" : "No"} />
         </div>
+
+        {/* Stakeholders */}
+        {project.councilDistrict ? (
+          <div className="pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+            <Stakeholders
+              key={`${cityId}-${project.councilDistrict}-${project.id}`}
+              cityId={cityId}
+              district={String(project.councilDistrict)}
+              currentProjectId={project.id}
+              onSelect={onSelect}
+            />
+          </div>
+        ) : null}
 
         {/* Actions */}
         <div className="flex gap-2 pt-1">

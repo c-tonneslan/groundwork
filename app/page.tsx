@@ -259,7 +259,12 @@ export default function HomePage() {
         </a>
 
         {selected && !comparing && !showGap ? (
-          <Detail project={selected} onClose={() => setSelectedId(null)} />
+          <Detail
+            project={selected}
+            cityId={activeCityId}
+            onClose={() => setSelectedId(null)}
+            onSelect={setSelectedId}
+          />
         ) : null}
         {comparing ? <Compare cities={cities} onClose={() => setComparing(false)} /> : null}
         {showGap && gap ? (

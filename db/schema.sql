@@ -91,6 +91,23 @@ CREATE TABLE IF NOT EXISTS census_tracts (
 CREATE INDEX IF NOT EXISTS census_tracts_geom_idx ON census_tracts USING GIST (geom);
 CREATE INDEX IF NOT EXISTS census_tracts_city_idx ON census_tracts (city_id);
 
+-- Elected representatives mapped to projects via district numbers. NYC
+-- has 1..51 council districts, SF has 1..11 supervisor districts. The
+-- `district` column is text so it works for any future city's id scheme.
+CREATE TABLE IF NOT EXISTS council_members (
+  city_id     TEXT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+  district    TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  party       TEXT,
+  website_url TEXT,
+  email       TEXT,
+  phone       TEXT,
+  photo_url   TEXT,
+  imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (city_id, district)
+);
+CREATE INDEX IF NOT EXISTS council_members_city_idx ON council_members (city_id);
+
 -- City metadata seed. Re-run is harmless thanks to ON CONFLICT DO UPDATE.
 INSERT INTO cities (id, name, center_lat, center_lng, default_zoom, data_source, data_source_url)
 VALUES
