@@ -1,10 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import ProjectsMap from "@/components/Map";
+import dynamic from "next/dynamic";
 import Sidebar, { type Filters } from "@/components/Sidebar";
 import Detail from "@/components/Detail";
 import type { Dataset, Project } from "@/lib/types";
+
+// Leaflet touches `window` at import time, so the Map module can't be
+// evaluated during SSR. Dynamic import with ssr:false skips it on the
+// server, then loads on the client after hydration.
+const ProjectsMap = dynamic(() => import("@/components/Map"), {
+  ssr: false,
+  loading: () => null,
+});
 
 const INITIAL_FILTERS: Filters = {
   query: "",

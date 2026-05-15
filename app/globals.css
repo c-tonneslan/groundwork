@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "maplibre-gl/dist/maplibre-gl.css";
 
 :root {
   --bg: #0b0f14;
@@ -52,26 +51,4 @@ input {
 ::selection {
   background: var(--accent);
   color: var(--bg);
-}
-
-/* MapLibre overrides to fit the dark theme. */
-.maplibregl-canvas {
-  outline: none;
-}
-.maplibregl-ctrl-attrib {
-  background: rgba(11, 15, 20, 0.7) !important;
-  color: var(--text-3) !important;
-  font-size: 9px !important;
-}
-.maplibregl-ctrl-attrib a {
-  color: var(--text-2) !important;
-}
-.maplibregl-popup-content {
-  background: transparent !important;
-  color: var(--text) !important;
-  padding: 0 !important;
-}
-.maplibregl-popup-tip {
-  border-top-color: #11181f !important;
-  border-bottom-color: #11181f !important;
 }
