@@ -1,16 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import maplibregl, { type Map as MLMap, type GeoJSONSource } from "maplibre-gl";
+// We import from the CSP-safe distribution rather than the default
+// maplibre-gl entry. The regular bundle compiles style expressions
+// through `new Function()`, which any strict Content-Security-Policy
+// without `unsafe-eval` will refuse to run. The CSP variant skips that
+// path. The worker URL also needs to point at the CSP worker file
+// (copied into /public via the postinstall script — see package.json).
+// Types still come from the main module since the CSP bundle ships
+// without its own .d.ts and the public API is identical.
+// @ts-expect-error - CSP build has no separate type declarations
+import maplibregl from "maplibre-gl/dist/maplibre-gl-csp.js";
+import type { Map as MLMap, GeoJSONSource } from "maplibre-gl";
 import type { Project } from "@/lib/types";
 
-// Tell MapLibre to load its worker from a static file rather than building
-// one inline via blob:eval. The CSP-safe variant of the worker is copied
-// into /public by `scripts/postinstall` (see package.json). This unblocks
-// browsers that enforce a strict CSP without `unsafe-eval`, which includes
-// Firefox's Enhanced Tracking Protection (strict) and assorted shields.
 if (typeof window !== "undefined") {
-  maplibregl.setWorkerUrl("/maplibre-csp-worker.js");
+  (maplibregl as { setWorkerUrl: (u: string) => void }).setWorkerUrl(
+    "/maplibre-csp-worker.js",
+  );
 }
 
 interface Props {
