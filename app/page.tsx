@@ -1,65 +1,119 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useMemo, useState } from "react";
+import ProjectsMap from "@/components/Map";
+import Sidebar, { type Filters } from "@/components/Sidebar";
+import Detail from "@/components/Detail";
+import type { Dataset, Project } from "@/lib/types";
+
+const INITIAL_FILTERS: Filters = {
+  query: "",
+  borough: "",
+  type: "",
+  minUnits: 0,
+  startYear: null,
+};
+
+export default function HomePage() {
+  const [dataset, setDataset] = useState<Dataset | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/nyc-housing.json")
+      .then((r) => r.json())
+      .then((d: Dataset) => {
+        if (!cancelled) setDataset(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allProjects = useMemo(() => dataset?.projects ?? [], [dataset]);
+
+  const filtered = useMemo(() => {
+    if (!allProjects.length) return [];
+    const q = filters.query.trim().toLowerCase();
+    return allProjects.filter((p) => {
+      if (filters.borough && p.borough !== filters.borough) return false;
+      if (filters.type && p.constructionType !== filters.type) return false;
+      if (filters.minUnits > 0 && p.units.total < filters.minUnits) return false;
+      if (filters.startYear != null) {
+        const y = p.startDate ? parseInt(p.startDate.slice(0, 4), 10) : 0;
+        if (!Number.isFinite(y) || y < filters.startYear) return false;
+      }
+      if (q) {
+        const hay = [
+          p.name,
+          p.address ?? "",
+          p.borough ?? "",
+          p.neighborhood ?? "",
+          p.postcode ?? "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [allProjects, filters]);
+
+  const selected: Project | null = useMemo(() => {
+    if (!selectedId) return null;
+    return allProjects.find((p) => p.id === selectedId) ?? null;
+  }, [allProjects, selectedId]);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="fixed inset-0 grid" style={{ gridTemplateColumns: "minmax(0, 1fr) 360px" }}>
+      <div className="relative">
+        <ProjectsMap projects={filtered} selectedId={selectedId} onSelect={setSelectedId} />
+
+        {!dataset && !loadError && (
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[var(--text-2)] font-mono text-sm pointer-events-none"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            loading {3707} projects…
+          </div>
+        )}
+        {loadError ? (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[var(--warning)] font-mono text-xs">
+            couldn&apos;t load dataset: {loadError}
+          </div>
+        ) : null}
+
+        <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
+          <div className="text-[10px] font-mono text-[var(--text-3)]">
+            click cluster to zoom · click marker for details
+          </div>
         </div>
-      </main>
+
+        <a
+          href="https://github.com/c-tonneslan/groundwork"
+          target="_blank"
+          rel="noreferrer"
+          className="absolute top-4 right-4 z-10 text-[11px] font-mono text-[var(--text-2)] hover:text-[var(--accent)]"
+        >
+          source
+        </a>
+
+        {selected ? <Detail project={selected} onClose={() => setSelectedId(null)} /> : null}
+      </div>
+
+      <Sidebar
+        allProjects={allProjects}
+        filtered={filtered}
+        filters={filters}
+        onFiltersChange={setFilters}
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+        fetchedAt={dataset?.fetchedAt ?? new Date().toISOString()}
+      />
     </div>
   );
 }

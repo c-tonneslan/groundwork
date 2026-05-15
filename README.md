@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# groundwork
 
-## Getting Started
+Interactive map of every affordable-housing project in New York City's HPD pipeline. Filter by borough, construction type, and unit count, click a marker for the income-tier breakdown, bedroom mix, council district, and a contact link for HPD. 3,707 projects, real data, no demo placeholders.
 
-First, run the development server:
+Built as a portfolio piece exploring civic open data and geospatial UI. Single city for now; the data model and routing are written so swapping in Philly, SF, or Boston is a fetch script and a switch, not a rewrite.
+
+## What's on the map
+
+- **One marker per project**, aggregated from 8,983 building-level rows in [NYC's "Affordable Housing Production by Building"](https://data.cityofnewyork.us/dataset/Affordable-Housing-Production-by-Building/hg8x-zxpr) dataset. Centroid of all the project's buildings; marker radius scales with total unit count.
+- **Marker clusters** at city-wide zoom (MapLibre's built-in clustering). Click a cluster to zoom in.
+- **Click any marker** to open the detail panel: total units, counted units, income-tier breakdown (Extremely Low → Middle Income), bedroom mix, council district, community board, extended-affordability flag, prevailing-wage flag. One-click open in Google Maps, one-click mailto: HPD.
+
+## Filtering
+
+The sidebar narrows the map and the list together:
+
+- Free-text search across project name, address, neighborhood, postcode
+- Borough dropdown
+- Construction type (New Construction, Preservation)
+- Start year ("2024 or later", etc)
+- Minimum project size ("100+ units" etc)
+
+Active filters get a green outline, and a "clear filters" link appears.
+
+## Stack
+
+- Next.js 16 + React 19, App Router, fully client-rendered after first paint
+- MapLibre GL JS for the map (no API key — Carto basemap CDN is free)
+- Tailwind CSS v4
+- A Node script (`scripts/fetch-nyc.mjs`) pulls the live Socrata API, aggregates buildings to projects, and writes `public/nyc-housing.json` (~2 MB). Re-run any time:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+node scripts/fetch-nyc.mjs
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Lat/lng for each project is the centroid of its building lat/lngs. Unit counts and bedroom mixes are summed across buildings.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Run locally
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+git clone https://github.com/c-tonneslan/groundwork
+cd groundwork
+npm install
+node scripts/fetch-nyc.mjs
+npm run dev
+# open http://localhost:3000
+```
 
-## Learn More
+## Adding another city
 
-To learn more about Next.js, take a look at the following resources:
+Nothing about the frontend hardcodes NYC except the initial map center. To plug in Philadelphia or SF:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Write `scripts/fetch-{city}.mjs` that maps that city's open-data API onto the `Project` shape in `lib/types.ts`.
+2. Output to `public/{city}-housing.json`.
+3. Add a city switcher and fetch the matching JSON.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Same data shape, same map, same filters. No backend.
 
-## Deploy on Vercel
+## Future
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Multi-city
+- Capital construction projects + permits, not just housing
+- Save filter combos to the URL
+- "Adopt a project" prototype where orgs claim a listing and add events / volunteer slots
+- Server-side PostGIS once the dataset crosses 500K rows
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT. Built by [Charlie Tonneslan](https://c-tonneslan-portfolio.vercel.app/).
