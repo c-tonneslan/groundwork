@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party JS copied into /public via postinstall:
+    "public/**/*.js",
   ]),
 ]);
 

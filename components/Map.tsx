@@ -4,6 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type Map as MLMap, type GeoJSONSource } from "maplibre-gl";
 import type { Project } from "@/lib/types";
 
+// Tell MapLibre to load its worker from a static file rather than building
+// one inline via blob:eval. The CSP-safe variant of the worker is copied
+// into /public by `scripts/postinstall` (see package.json). This unblocks
+// browsers that enforce a strict CSP without `unsafe-eval`, which includes
+// Firefox's Enhanced Tracking Protection (strict) and assorted shields.
+if (typeof window !== "undefined") {
+  maplibregl.setWorkerUrl("/maplibre-csp-worker.js");
+}
+
 interface Props {
   projects: Project[];
   selectedId: string | null;

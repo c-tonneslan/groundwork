@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "cp -f node_modules/maplibre-gl/dist/maplibre-gl-csp-worker.js public/maplibre-csp-worker.js && cp -f node_modules/maplibre-gl/dist/maplibre-gl-csp.js public/maplibre-csp.js"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",
