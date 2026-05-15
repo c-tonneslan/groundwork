@@ -5,8 +5,14 @@ import dynamic from "next/dynamic";
 import Sidebar, { type Filters } from "@/components/Sidebar";
 import Detail from "@/components/Detail";
 import Compare from "@/components/Compare";
+import Gap, { type GapTract } from "@/components/Gap";
 import type { Dataset, Project } from "@/lib/types";
 import type { CityMeta } from "@/lib/cities";
+
+interface TractFC {
+  type: "FeatureCollection";
+  features: unknown[];
+}
 
 // Leaflet touches `window` at import time, so the Map module can't be
 // evaluated during SSR. Dynamic import with ssr:false skips it on the
@@ -38,6 +44,12 @@ export default function HomePage() {
   const [cities, setCities] = useState<CityMeta[]>([]);
   const [activeCityId, setActiveCityId] = useState<string>(() => initialCityFromURL());
   const [comparing, setComparing] = useState(false);
+
+  const [showBurden, setShowBurden] = useState(false);
+  const [tracts, setTracts] = useState<TractFC | null>(null);
+  const [gap, setGap] = useState<GapTract[] | null>(null);
+  const [showGap, setShowGap] = useState(false);
+  const [mapFlyTo, setMapFlyTo] = useState<[number, number] | null>(null);
 
   // Fetch cities once on mount.
   useEffect(() => {
@@ -98,6 +110,40 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [activeCityId]);
+
+  // Fetch tracts + gap when burden mode flips on OR city changes.
+  useEffect(() => {
+    if (!showBurden && !showGap) return;
+    let cancelled = false;
+    async function load() {
+      if (showBurden) {
+        try {
+          const resp = await fetch(`/api/tracts?city=${activeCityId}`);
+          if (resp.ok) {
+            const fc = (await resp.json()) as TractFC;
+            if (!cancelled) setTracts(fc);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (showGap) {
+        try {
+          const resp = await fetch(`/api/gap?city=${activeCityId}&radius=1000&limit=25`);
+          if (resp.ok) {
+            const data = (await resp.json()) as { tracts: GapTract[] };
+            if (!cancelled) setGap(data.tracts);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCityId, showBurden, showGap]);
 
   // Sync activeCityId to URL.
   useEffect(() => {
@@ -170,8 +216,9 @@ export default function HomePage() {
           projects={filtered}
           selectedId={selectedId}
           onSelect={setSelectedId}
-          center={activeCity?.center ?? null}
+          center={mapFlyTo ?? activeCity?.center ?? null}
           defaultZoom={activeCity?.defaultZoom ?? null}
+          tracts={showBurden ? (tracts as never) : null}
         />
 
         {!dataset && !loadError && (
@@ -211,10 +258,19 @@ export default function HomePage() {
           source
         </a>
 
-        {selected && !comparing ? (
+        {selected && !comparing && !showGap ? (
           <Detail project={selected} onClose={() => setSelectedId(null)} />
         ) : null}
         {comparing ? <Compare cities={cities} onClose={() => setComparing(false)} /> : null}
+        {showGap && gap ? (
+          <Gap
+            cityName={activeCity?.name ?? activeCityId}
+            tracts={gap}
+            radiusMeters={1000}
+            onClose={() => setShowGap(false)}
+            onFlyTo={(lat, lng) => setMapFlyTo([lat, lng])}
+          />
+        ) : null}
       </div>
 
       <Sidebar
@@ -230,6 +286,10 @@ export default function HomePage() {
         onCityChange={onCityChange}
         onCompareToggle={() => setComparing((c) => !c)}
         comparing={comparing}
+        showBurden={showBurden}
+        onToggleBurden={() => setShowBurden((b) => !b)}
+        showGap={showGap}
+        onToggleGap={() => setShowGap((g) => !g)}
       />
     </div>
   );

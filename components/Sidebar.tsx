@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Search, X, MapPin, Building2, Columns3 } from "lucide-react";
+import { Search, X, MapPin, Building2, Columns3, Layers, Scale } from "lucide-react";
 import type { Project } from "@/lib/types";
 import type { CityMeta } from "@/lib/cities";
 
@@ -28,6 +28,11 @@ interface Props {
   onCityChange: (id: string) => void;
   onCompareToggle: () => void;
   comparing: boolean;
+  // Phase 3: census-burden choropleth + supply-demand gap panel.
+  showBurden: boolean;
+  onToggleBurden: () => void;
+  showGap: boolean;
+  onToggleGap: () => void;
 }
 
 export default function Sidebar({
@@ -43,6 +48,10 @@ export default function Sidebar({
   onCityChange,
   onCompareToggle,
   comparing,
+  showBurden,
+  onToggleBurden,
+  showGap,
+  onToggleGap,
 }: Props) {
   const activeCity = cities.find((c) => c.id === activeCityId);
   const boroughs = useMemo(() => {
@@ -135,6 +144,22 @@ export default function Sidebar({
           {hasFilter ? <span className="text-[var(--text-3)]"> of {allProjects.length.toLocaleString()}</span> : ""}
           {" "}
           {activeCity ? `${activeCity.name} ` : ""}projects
+        </div>
+
+        {/* Analytical toggles: rent-burden choropleth + supply-demand gap. */}
+        <div className="mt-2.5 flex gap-2">
+          <ToggleButton
+            active={showBurden}
+            onClick={onToggleBurden}
+            icon={<Layers size={11} />}
+            label="rent burden"
+          />
+          <ToggleButton
+            active={showGap}
+            onClick={onToggleGap}
+            icon={<Scale size={11} />}
+            label="supply gap"
+          />
         </div>
       </div>
 
@@ -247,6 +272,8 @@ export default function Sidebar({
       </div>
 
       {/* List */}
+      {/* Helper toggle component for the rent-burden / supply-gap header buttons. */}
+      {/* (defined below as ToggleButton) */}
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="p-6 text-[var(--text-3)] text-xs">No projects match those filters.</div>
@@ -297,5 +324,33 @@ export default function Sidebar({
         )}
       </div>
     </aside>
+  );
+}
+
+function ToggleButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex-1 px-2 py-1.5 rounded-md text-[10px] uppercase tracking-wider font-mono flex items-center justify-center gap-1.5 transition-colors"
+      style={{
+        background: active ? "var(--accent)" : "var(--surface-2)",
+        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+        color: active ? "var(--bg)" : "var(--text-2)",
+      }}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

@@ -8,12 +8,40 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import type { Project } from "@/lib/types";
 
+// Subset of GeoJSON we actually consume. Avoids pulling in @types/geojson.
+interface TractFeature {
+  type: "Feature";
+  id?: string;
+  properties: {
+    geoid: string;
+    name: string | null;
+    population: number | null;
+    medianIncome: number | null;
+    renterHouseholds: number | null;
+    rentBurdened: number | null;
+    severelyRentBurdened: number | null;
+    rentBurdenedPct: number | null;
+    severelyBurdenedPct: number | null;
+  };
+  geometry: {
+    type: "MultiPolygon" | "Polygon";
+    coordinates: number[][][] | number[][][][];
+  };
+}
+
+interface TractFC {
+  type: "FeatureCollection";
+  features: TractFeature[];
+}
+
 interface Props {
   projects: Project[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   center?: [number, number] | null;
   defaultZoom?: number | null;
+  // Census tract choropleth. Pass null to hide.
+  tracts?: TractFC | null;
 }
 
 const DEFAULT_CENTER: [number, number] = [40.7484, -73.9857];
@@ -68,18 +96,33 @@ interface ClusterableLayer extends L.FeatureGroup {
   addLayers(layers: L.Layer[]): this;
 }
 
+// Color ramp for rent-burden choropleth. Low burden = nearly transparent
+// blue-grey, high burden = saturated warm. Tuned for the dark basemap.
+function burdenColor(pct: number | null): string {
+  if (pct == null) return "rgba(35,49,64,0.0)";
+  // Stops at 30/40/50/60/70/80+
+  if (pct >= 70) return "rgba(232,87,68,0.55)";
+  if (pct >= 60) return "rgba(232,127,68,0.5)";
+  if (pct >= 50) return "rgba(232,170,68,0.45)";
+  if (pct >= 40) return "rgba(232,200,68,0.4)";
+  if (pct >= 30) return "rgba(190,200,120,0.35)";
+  return "rgba(120,160,180,0.18)";
+}
+
 export default function ProjectsMap({
   projects,
   selectedId,
   onSelect,
   center,
   defaultZoom,
+  tracts,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const clusterRef = useRef<ClusterableLayer | null>(null);
   const markerByIdRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const haloRef = useRef<L.CircleMarker | null>(null);
+  const tractLayerRef = useRef<L.GeoJSON | null>(null);
 
   // One-time map init
   useEffect(() => {
@@ -133,11 +176,62 @@ export default function ProjectsMap({
       clusterRef.current = null;
       markerByIdRef.current.clear();
       haloRef.current = null;
+      tractLayerRef.current = null;
     };
     // Map should init exactly once. Subsequent center/zoom changes
     // are handled by the flyTo effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Census tract choropleth: render below the markers (lower z-index pane).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    // Remove the old layer when tracts change (or get nulled out).
+    if (tractLayerRef.current) {
+      tractLayerRef.current.remove();
+      tractLayerRef.current = null;
+    }
+    if (!tracts || !tracts.features.length) return;
+
+    // Use a dedicated pane so the choropleth always sits beneath the
+    // markers and clusters, regardless of when each layer mounts.
+    if (!map.getPane("tracts")) {
+      const pane = map.createPane("tracts");
+      pane.style.zIndex = "350"; // between tilePane (200) and overlayPane (400)
+      pane.style.pointerEvents = "auto";
+    }
+
+    const layer = L.geoJSON(tracts as unknown as GeoJSON.GeoJsonObject, {
+      pane: "tracts",
+      style: (feat) => {
+        const p = (feat?.properties ?? {}) as TractFeature["properties"];
+        return {
+          stroke: true,
+          color: "rgba(35,49,64,0.6)",
+          weight: 0.5,
+          fillColor: burdenColor(p.rentBurdenedPct),
+          fillOpacity: 1,
+        };
+      },
+      onEachFeature: (feat, lyr) => {
+        const p = feat.properties as TractFeature["properties"];
+        const pct = p.rentBurdenedPct ?? null;
+        const inc = p.medianIncome;
+        lyr.bindTooltip(
+          `<div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#e6edf3;">
+             <div style="color:#6dd0a4;font-weight:700;">Tract ${escapeHtml(p.name ?? p.geoid)}</div>
+             <div>${pct == null ? "—" : pct.toFixed(1) + "% rent-burdened"}</div>
+             <div style="color:#98a8b8;font-size:10px;">${inc ? "median income $" + inc.toLocaleString() : ""}</div>
+           </div>`,
+          { className: "gw-tooltip", direction: "top", sticky: true, interactive: false },
+        );
+      },
+    });
+    layer.addTo(map);
+    tractLayerRef.current = layer;
+  }, [tracts]);
 
   // Fly to a new city's center when the parent switches city.
   useEffect(() => {

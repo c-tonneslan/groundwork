@@ -69,6 +69,28 @@ CREATE INDEX IF NOT EXISTS projects_borough_idx ON projects (borough);
 CREATE INDEX IF NOT EXISTS projects_year_idx  ON projects ((EXTRACT(YEAR FROM start_date)::int));
 CREATE INDEX IF NOT EXISTS projects_total_idx ON projects (units_total);
 
+-- Census tracts with ACS-derived demographics. Keyed by the 11-digit
+-- GEOID (state(2)+county(3)+tract(6)). Geom is multipolygon because
+-- coastal tracts can be discontinuous over water.
+CREATE TABLE IF NOT EXISTS census_tracts (
+  geoid                  TEXT PRIMARY KEY,
+  city_id                TEXT REFERENCES cities(id) ON DELETE SET NULL,
+  state_fips             TEXT NOT NULL,
+  county_fips            TEXT NOT NULL,
+  tract_fips             TEXT NOT NULL,
+  name                   TEXT,
+  population             INT,
+  median_income          INT,             -- median household income in USD
+  renter_households      INT,             -- denominator for burden calcs
+  rent_burdened          INT,             -- households paying 30%+ of income on rent
+  severely_rent_burdened INT,             -- households paying 50%+
+  geom                   GEOGRAPHY(MULTIPOLYGON, 4326) NOT NULL,
+  imported_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS census_tracts_geom_idx ON census_tracts USING GIST (geom);
+CREATE INDEX IF NOT EXISTS census_tracts_city_idx ON census_tracts (city_id);
+
 -- City metadata seed. Re-run is harmless thanks to ON CONFLICT DO UPDATE.
 INSERT INTO cities (id, name, center_lat, center_lng, default_zoom, data_source, data_source_url)
 VALUES
