@@ -36,12 +36,16 @@ export default function Detail({ project, onClose }: Props) {
 
   return (
     <div
-      className="absolute top-4 left-4 z-20 w-96 max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] rounded-xl border overflow-y-auto"
+      className="absolute top-4 left-4 w-96 max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] rounded-xl border overflow-y-auto"
       style={{
         background: "rgba(17,24,31,0.96)",
         borderColor: "var(--border)",
         backdropFilter: "blur(12px)",
         boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+        // Leaflet panes sit at z-index 200-700 inside the map container;
+        // we need to live above them so the detail panel isn't hidden
+        // behind marker layers and controls.
+        zIndex: 1000,
       }}
     >
       <div

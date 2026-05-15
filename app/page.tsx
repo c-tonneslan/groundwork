@@ -101,7 +101,10 @@ export default function HomePage() {
           </div>
         ) : null}
 
-        <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
+        <div
+          className="absolute bottom-4 left-4 pointer-events-none"
+          style={{ zIndex: 1000 }}
+        >
           <div
             className="text-[10px] font-mono text-[var(--text-2)] px-2 py-1 rounded"
             style={{ background: "rgba(11,15,20,0.7)" }}
@@ -115,7 +118,8 @@ export default function HomePage() {
           href="https://github.com/c-tonneslan/groundwork"
           target="_blank"
           rel="noreferrer"
-          className="absolute top-4 right-4 z-10 text-[11px] font-mono text-[var(--text-2)] hover:text-[var(--accent)]"
+          className="absolute top-4 right-4 text-[11px] font-mono text-[var(--text-2)] hover:text-[var(--accent)]"
+          style={{ zIndex: 1000 }}
         >
           source
         </a>
