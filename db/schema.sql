@@ -71,15 +71,25 @@ CREATE INDEX IF NOT EXISTS projects_total_idx ON projects (units_total);
 
 -- City metadata seed. Re-run is harmless thanks to ON CONFLICT DO UPDATE.
 INSERT INTO cities (id, name, center_lat, center_lng, default_zoom, data_source, data_source_url)
-VALUES (
-  'nyc',
-  'New York City',
-  40.7484,
-  -73.9857,
-  11,
-  'NYC HPD Affordable Housing Production by Building',
-  'https://data.cityofnewyork.us/dataset/Affordable-Housing-Production-by-Building/hg8x-zxpr'
-)
+VALUES
+  (
+    'nyc',
+    'New York City',
+    40.7484,
+    -73.9857,
+    11,
+    'NYC HPD Affordable Housing Production by Building',
+    'https://data.cityofnewyork.us/dataset/Affordable-Housing-Production-by-Building/hg8x-zxpr'
+  ),
+  (
+    'sfo',
+    'San Francisco',
+    37.7749,
+    -122.4194,
+    12,
+    'MOHCD Affordable Housing Pipeline',
+    'https://data.sfgov.org/Housing-and-Buildings/Mayor-s-Office-of-Housing-and-Community-Developmen/aaxw-2cb8'
+  )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
   center_lat = EXCLUDED.center_lat,

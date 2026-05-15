@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Sidebar, { type Filters } from "@/components/Sidebar";
 import Detail from "@/components/Detail";
+import Compare from "@/components/Compare";
 import type { Dataset, Project } from "@/lib/types";
+import type { CityMeta } from "@/lib/cities";
 
 // Leaflet touches `window` at import time, so the Map module can't be
 // evaluated during SSR. Dynamic import with ssr:false skips it on the
@@ -22,28 +24,53 @@ const INITIAL_FILTERS: Filters = {
   startYear: null,
 };
 
+function initialCityFromURL(): string {
+  if (typeof window === "undefined") return "nyc";
+  return new URLSearchParams(window.location.search).get("city") || "nyc";
+}
+
 export default function HomePage() {
   const [dataset, setDataset] = useState<Dataset | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  const [cities, setCities] = useState<CityMeta[]>([]);
+  const [activeCityId, setActiveCityId] = useState<string>(() => initialCityFromURL());
+  const [comparing, setComparing] = useState(false);
+
+  // Fetch cities once on mount.
   useEffect(() => {
     let cancelled = false;
-    // Prefer the Postgres-backed API. If the server hasn't been wired up
-    // with DATABASE_URL yet (preview deploys, very-fresh clones), it
-    // returns 503 and we fall back to the bundled static JSON so the
-    // page never lands empty for a visitor.
+    fetch("/api/cities")
+      .then((r) => (r.ok ? r.json() : { cities: [] }))
+      .then((d: { cities?: CityMeta[] }) => {
+        if (!cancelled) setCities(d.cities ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetch projects for the active city; refetches whenever the city changes.
+  useEffect(() => {
+    let cancelled = false;
+    // Reset state on city switch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDataset(null);
+    setSelectedId(null);
+    setFilters(INITIAL_FILTERS);
+
     async function load() {
       try {
-        const resp = await fetch("/api/projects?city=nyc&limit=10000");
+        const resp = await fetch(`/api/projects?city=${activeCityId}&limit=10000`);
         if (resp.ok) {
           const data = await resp.json();
           if (cancelled) return;
           setDataset({
-            source: data.city?.name ? `${data.city.name} HPD` : "API",
-            sourceUrl:
-              "https://data.cityofnewyork.us/dataset/Affordable-Housing-Production-by-Building/hg8x-zxpr",
+            source: data.city?.name ?? "API",
+            sourceUrl: "",
             fetchedAt: data.city?.fetchedAt ?? new Date().toISOString(),
             projectCount: data.count,
             rawRowCount: data.count,
@@ -52,21 +79,39 @@ export default function HomePage() {
           return;
         }
       } catch {
-        // network error: fall through to JSON.
+        // network error
       }
-      try {
-        const resp = await fetch("/nyc-housing.json");
-        const data = (await resp.json()) as Dataset;
-        if (!cancelled) setDataset(data);
-      } catch (e) {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+      if (activeCityId === "nyc") {
+        try {
+          const resp = await fetch("/nyc-housing.json");
+          const data = (await resp.json()) as Dataset;
+          if (!cancelled) setDataset(data);
+        } catch (e) {
+          if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+        }
+      } else {
+        if (!cancelled) setLoadError(`couldn't load ${activeCityId} from API`);
       }
     }
     load();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeCityId]);
+
+  // Sync activeCityId to URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    if (activeCityId === "nyc") sp.delete("city");
+    else sp.set("city", activeCityId);
+    const qs = sp.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${qs ? `?${qs}` : ""}`,
+    );
+  }, [activeCityId]);
 
   const allProjects = useMemo(() => dataset?.projects ?? [], [dataset]);
 
@@ -102,6 +147,16 @@ export default function HomePage() {
     return allProjects.find((p) => p.id === selectedId) ?? null;
   }, [allProjects, selectedId]);
 
+  const activeCity = useMemo(
+    () => cities.find((c) => c.id === activeCityId) ?? null,
+    [cities, activeCityId],
+  );
+
+  const onCityChange = useCallback((id: string) => {
+    setActiveCityId(id);
+    setComparing(false);
+  }, []);
+
   return (
     <div
       className="fixed inset-0 grid"
@@ -111,17 +166,24 @@ export default function HomePage() {
       }}
     >
       <div className="relative h-full">
-        <ProjectsMap projects={filtered} selectedId={selectedId} onSelect={setSelectedId} />
+        <ProjectsMap
+          projects={filtered}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          center={activeCity?.center ?? null}
+          defaultZoom={activeCity?.defaultZoom ?? null}
+        />
 
         {!dataset && !loadError && (
           <div
             className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[var(--text-2)] font-mono text-sm pointer-events-none"
+            style={{ zIndex: 1000 }}
           >
-            loading {3707} projects…
+            loading {activeCity?.name ?? activeCityId}…
           </div>
         )}
         {loadError ? (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[var(--warning)] font-mono text-xs">
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[var(--warning)] font-mono text-xs" style={{ zIndex: 1000 }}>
             couldn&apos;t load dataset: {loadError}
           </div>
         ) : null}
@@ -149,7 +211,10 @@ export default function HomePage() {
           source
         </a>
 
-        {selected ? <Detail project={selected} onClose={() => setSelectedId(null)} /> : null}
+        {selected && !comparing ? (
+          <Detail project={selected} onClose={() => setSelectedId(null)} />
+        ) : null}
+        {comparing ? <Compare cities={cities} onClose={() => setComparing(false)} /> : null}
       </div>
 
       <Sidebar
@@ -160,6 +225,11 @@ export default function HomePage() {
         selectedId={selectedId}
         onSelect={setSelectedId}
         fetchedAt={dataset?.fetchedAt ?? new Date().toISOString()}
+        cities={cities}
+        activeCityId={activeCityId}
+        onCityChange={onCityChange}
+        onCompareToggle={() => setComparing((c) => !c)}
+        comparing={comparing}
       />
     </div>
   );

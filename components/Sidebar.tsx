@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { Search, X, MapPin, Building2 } from "lucide-react";
+import { Search, X, MapPin, Building2, Columns3 } from "lucide-react";
 import type { Project } from "@/lib/types";
+import type { CityMeta } from "@/lib/cities";
 
 export interface Filters {
   query: string;
@@ -20,6 +21,13 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   fetchedAt: string;
+  // Multi-city support. When `cities.length > 1` we render a switcher
+  // and a Compare button at the top.
+  cities: CityMeta[];
+  activeCityId: string;
+  onCityChange: (id: string) => void;
+  onCompareToggle: () => void;
+  comparing: boolean;
 }
 
 export default function Sidebar({
@@ -30,7 +38,13 @@ export default function Sidebar({
   selectedId,
   onSelect,
   fetchedAt,
+  cities,
+  activeCityId,
+  onCityChange,
+  onCompareToggle,
+  comparing,
 }: Props) {
+  const activeCity = cities.find((c) => c.id === activeCityId);
   const boroughs = useMemo(() => {
     const set = new Set<string>();
     for (const p of allProjects) if (p.borough) set.add(p.borough);
@@ -74,14 +88,53 @@ export default function Sidebar({
             groundwork
           </span>
           <span className="text-[10px] text-[var(--text-3)] font-mono">
-            NYC HPD · data {new Date(fetchedAt).toISOString().slice(0, 10)}
+            data {new Date(fetchedAt).toISOString().slice(0, 10)}
           </span>
         </div>
-        <div className="text-[11px] text-[var(--text-2)] mt-1">
+
+        {/* City switcher + compare. Only renders when we have >1 city. */}
+        {cities.length > 1 ? (
+          <div className="mt-2.5 flex gap-2">
+            <select
+              value={activeCityId}
+              onChange={(e) => onCityChange(e.target.value)}
+              className="flex-1 px-2 py-1.5 rounded-md text-xs"
+              style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--accent)",
+                color: "var(--accent)",
+              }}
+              title="Switch city"
+            >
+              {cities.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                  {c.stats ? ` (${c.stats.projects.toLocaleString()})` : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={onCompareToggle}
+              className="px-2.5 py-1.5 rounded-md text-xs flex items-center gap-1.5"
+              style={{
+                background: comparing ? "var(--accent)" : "var(--surface-2)",
+                border: `1px solid ${comparing ? "var(--accent)" : "var(--border)"}`,
+                color: comparing ? "var(--bg)" : "var(--text-2)",
+              }}
+              title="Compare cities side-by-side"
+            >
+              <Columns3 size={12} />
+              <span>{comparing ? "hide" : "compare"}</span>
+            </button>
+          </div>
+        ) : null}
+
+        <div className="text-[11px] text-[var(--text-2)] mt-2">
           {filtered.length.toLocaleString()}
           {hasFilter ? <span className="text-[var(--text-3)]"> of {allProjects.length.toLocaleString()}</span> : ""}
           {" "}
-          affordable-housing projects
+          {activeCity ? `${activeCity.name} ` : ""}projects
         </div>
       </div>
 

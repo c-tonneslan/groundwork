@@ -12,9 +12,12 @@ interface Props {
   projects: Project[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  center?: [number, number] | null;
+  defaultZoom?: number | null;
 }
 
-const NYC_CENTER: [number, number] = [40.7484, -73.9857];
+const DEFAULT_CENTER: [number, number] = [40.7484, -73.9857];
+const DEFAULT_ZOOM = 11;
 
 // Carto's "Dark Matter" raster tiles. CC-BY-licensed, no API key.
 // Plain image tiles — no WebGL, no workers, no eval, works under any CSP.
@@ -65,7 +68,13 @@ interface ClusterableLayer extends L.FeatureGroup {
   addLayers(layers: L.Layer[]): this;
 }
 
-export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
+export default function ProjectsMap({
+  projects,
+  selectedId,
+  onSelect,
+  center,
+  defaultZoom,
+}: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const clusterRef = useRef<ClusterableLayer | null>(null);
@@ -77,8 +86,8 @@ export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
     if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, {
-      center: NYC_CENTER,
-      zoom: 11,
+      center: center ?? DEFAULT_CENTER,
+      zoom: defaultZoom ?? DEFAULT_ZOOM,
       zoomControl: true,
       attributionControl: true,
       preferCanvas: true, // canvas renderer = better perf for thousands of markers
@@ -125,7 +134,17 @@ export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
       markerByIdRef.current.clear();
       haloRef.current = null;
     };
+    // Map should init exactly once. Subsequent center/zoom changes
+    // are handled by the flyTo effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fly to a new city's center when the parent switches city.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !center) return;
+    map.flyTo(center, defaultZoom ?? DEFAULT_ZOOM, { duration: 1.2 });
+  }, [center, defaultZoom]);
 
   // Rebuild markers whenever the filtered project list changes.
   const layers = useMemo(() => {
