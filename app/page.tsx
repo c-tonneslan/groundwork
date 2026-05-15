@@ -30,14 +30,39 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/nyc-housing.json")
-      .then((r) => r.json())
-      .then((d: Dataset) => {
-        if (!cancelled) setDataset(d);
-      })
-      .catch((e) => {
+    // Prefer the Postgres-backed API. If the server hasn't been wired up
+    // with DATABASE_URL yet (preview deploys, very-fresh clones), it
+    // returns 503 and we fall back to the bundled static JSON so the
+    // page never lands empty for a visitor.
+    async function load() {
+      try {
+        const resp = await fetch("/api/projects?city=nyc&limit=10000");
+        if (resp.ok) {
+          const data = await resp.json();
+          if (cancelled) return;
+          setDataset({
+            source: data.city?.name ? `${data.city.name} HPD` : "API",
+            sourceUrl:
+              "https://data.cityofnewyork.us/dataset/Affordable-Housing-Production-by-Building/hg8x-zxpr",
+            fetchedAt: data.city?.fetchedAt ?? new Date().toISOString(),
+            projectCount: data.count,
+            rawRowCount: data.count,
+            projects: data.projects,
+          });
+          return;
+        }
+      } catch {
+        // network error: fall through to JSON.
+      }
+      try {
+        const resp = await fetch("/nyc-housing.json");
+        const data = (await resp.json()) as Dataset;
+        if (!cancelled) setDataset(data);
+      } catch (e) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
-      });
+      }
+    }
+    load();
     return () => {
       cancelled = true;
     };
