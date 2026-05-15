@@ -37,16 +37,22 @@ function makeMarker(project: Project, onSelect: (id: string) => void): L.CircleM
     color: "#0b0f14",
     weight: 1,
     fillColor: "#6dd0a4",
-    fillOpacity: 0.85,
+    fillOpacity: 0.9,
+    // Slightly larger hit area than the visible dot so clicks land easily.
+    bubblingMouseEvents: false,
+    interactive: true,
   });
   marker.bindTooltip(
     `<div style="font-family:JetBrains Mono,monospace;font-size:11px;color:#e6edf3;">
        <div style="color:#6dd0a4;font-weight:700;">${escapeHtml(project.name)}</div>
-       <div style="color:#98a8b8;font-size:10px;">${escapeHtml(project.borough ?? "")} · ${project.units.total} units</div>
+       <div style="color:#98a8b8;font-size:10px;">${escapeHtml(project.borough ?? "")} · ${project.units.total} units · click for details</div>
      </div>`,
-    { className: "gw-tooltip", direction: "top", offset: [0, -6] },
+    { className: "gw-tooltip", direction: "top", offset: [0, -6], interactive: false },
   );
-  marker.on("click", () => onSelect(project.id));
+  marker.on("click", (e) => {
+    L.DomEvent.stopPropagation(e);
+    onSelect(project.id);
+  });
   return marker;
 }
 
@@ -91,9 +97,14 @@ export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
       L as unknown as { markerClusterGroup: (opts: object) => ClusterableLayer }
     ).markerClusterGroup({
       chunkedLoading: true,
-      maxClusterRadius: 50,
+      maxClusterRadius: 35,
+      // Once you've zoomed in past 13, every marker shows individually
+      // so users always reach a clickable project after a reasonable zoom.
+      disableClusteringAtZoom: 14,
       spiderfyOnMaxZoom: true,
+      spiderfyOnEveryZoom: false,
       showCoverageOnHover: false,
+      zoomToBoundsOnClick: true,
       iconCreateFunction: (c: L.MarkerCluster) => {
         const n = c.getChildCount();
         const size = n < 10 ? 30 : n < 50 ? 36 : n < 200 ? 42 : 48;

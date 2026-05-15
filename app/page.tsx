@@ -102,8 +102,12 @@ export default function HomePage() {
         ) : null}
 
         <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
-          <div className="text-[10px] font-mono text-[var(--text-3)]">
-            click cluster to zoom · click marker for details
+          <div
+            className="text-[10px] font-mono text-[var(--text-2)] px-2 py-1 rounded"
+            style={{ background: "rgba(11,15,20,0.7)" }}
+          >
+            click a <span className="text-[var(--accent)]">green cluster</span> to zoom in · click an
+            individual <span className="text-[var(--accent)]">dot</span> to see project details
           </div>
         </div>
 
