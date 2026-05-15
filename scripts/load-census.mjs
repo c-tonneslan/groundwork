@@ -90,8 +90,8 @@ async function fetchACS(state, counties) {
 }
 
 async function fetchTractGeoms(state, counties) {
-  // TIGERweb's tract layer (id 3) supports filtering and GeoJSON output.
-  // We page through 1,000 features at a time.
+  // Layer 0 is the current "Census Tracts" boundary layer. Layers 3/6
+  // exist but are ACS-annotated subsets with different fields.
   const out = [];
   for (const county of counties) {
     let offset = 0;
@@ -103,7 +103,7 @@ async function fetchTractGeoms(state, counties) {
         resultRecordCount: "1000",
         resultOffset: String(offset),
       });
-      const url = `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/3/query?${params}`;
+      const url = `https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Tracts_Blocks/MapServer/0/query?${params}`;
       const resp = await fetch(url);
       if (!resp.ok)
         throw new Error(`TIGERweb ${state}/${county}: ${resp.status} ${resp.statusText}`);
