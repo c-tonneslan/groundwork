@@ -128,6 +128,24 @@ VALUES
     12,
     'MOHCD Affordable Housing Pipeline',
     'https://data.sfgov.org/Housing-and-Buildings/Mayor-s-Office-of-Housing-and-Community-Developmen/aaxw-2cb8'
+  ),
+  (
+    'chi',
+    'Chicago',
+    41.8781,
+    -87.6298,
+    11,
+    'Chicago Affordable Rental Housing Developments',
+    'https://data.cityofchicago.org/Community-Economic-Development/Affordable-Rental-Housing-Developments/s6ha-ppgi'
+  ),
+  (
+    'lax',
+    'Los Angeles',
+    34.0522,
+    -118.2437,
+    10,
+    'LAHD Affordable Housing Projects (2003 to present)',
+    'https://data.lacity.org/Housing-and-Real-Estate/LAHD-Affordable-Housing-Projects-List-2003-to-Pres/mymu-zi3s'
   )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
