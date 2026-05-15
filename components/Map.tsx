@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl, { type Map as MLMap, type GeoJSONSource } from "maplibre-gl";
 import type { Project } from "@/lib/types";
 
@@ -8,6 +8,11 @@ interface Props {
   projects: Project[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+}
+
+interface InitError {
+  message: string;
+  detail?: string;
 }
 
 // Carto's "Dark Matter" basemap is CC-licensed and served free from
@@ -20,6 +25,7 @@ const NYC_CENTER: [number, number] = [-73.9857, 40.7484];
 export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MLMap | null>(null);
+  const [initError, setInitError] = useState<InitError | null>(null);
 
   // Project array as GeoJSON; recomputed whenever filters change upstream.
   const geojson = useMemo(() => {
@@ -43,16 +49,40 @@ export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: STYLE_URL,
-      center: NYC_CENTER,
-      zoom: 10.5,
-      attributionControl: { compact: true },
-    });
+    let map: MLMap;
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: STYLE_URL,
+        center: NYC_CENTER,
+        zoom: 10.5,
+        attributionControl: { compact: true },
+      });
+    } catch (e) {
+      // Surface init-time errors (almost always WebGL unavailable) directly
+      // in the UI so users see something other than a black square.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setInitError({
+        message: "Map couldn't initialise",
+        detail: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
     mapRef.current = map;
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
+
+    map.on("error", (e) => {
+      // Map errors after init (style fetch failure, tile load failure, etc).
+      // Surface the first one so it's visible to the user rather than only
+      // in the devtools console.
+      setInitError((prev) =>
+        prev ?? {
+          message: "Map error",
+          detail: (e as { error?: { message?: string } }).error?.message ?? "unknown",
+        },
+      );
+    });
 
     // Resize observer: if the container's height was 0 at init time (e.g.
     // the parent grid hadn't laid out yet), we'd render a 0-pixel-tall map.
@@ -214,5 +244,24 @@ export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
     });
   }, [selectedId, projects]);
 
-  return <div ref={containerRef} className="absolute inset-0" />;
+  return (
+    <>
+      <div ref={containerRef} className="absolute inset-0" />
+      {initError ? (
+        <div
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-30 rounded-md px-3 py-2 text-xs font-mono"
+          style={{
+            background: "rgba(11,15,20,0.92)",
+            border: "1px solid var(--warning)",
+            color: "var(--warning)",
+            backdropFilter: "blur(8px)",
+            maxWidth: "min(90%, 500px)",
+          }}
+        >
+          <div className="font-semibold">{initError.message}</div>
+          {initError.detail ? <div className="text-[10px] opacity-80 mt-0.5">{initError.detail}</div> : null}
+        </div>
+      ) : null}
+    </>
+  );
 }
