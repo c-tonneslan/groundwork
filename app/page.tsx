@@ -70,8 +70,14 @@ export default function HomePage() {
   }, [allProjects, selectedId]);
 
   return (
-    <div className="fixed inset-0 grid" style={{ gridTemplateColumns: "minmax(0, 1fr) 360px" }}>
-      <div className="relative">
+    <div
+      className="fixed inset-0 grid"
+      style={{
+        gridTemplateColumns: "minmax(0, 1fr) 360px",
+        gridTemplateRows: "100vh",
+      }}
+    >
+      <div className="relative h-full">
         <ProjectsMap projects={filtered} selectedId={selectedId} onSelect={setSelectedId} />
 
         {!dataset && !loadError && (

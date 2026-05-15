@@ -54,7 +54,14 @@ export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
 
+    // Resize observer: if the container's height was 0 at init time (e.g.
+    // the parent grid hadn't laid out yet), we'd render a 0-pixel-tall map.
+    // Watching for size changes lets us recover gracefully.
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(containerRef.current);
+
     map.on("load", () => {
+      map.resize();
       map.addSource("projects", {
         type: "geojson",
         data: geojson,
@@ -171,6 +178,7 @@ export default function ProjectsMap({ projects, selectedId, onSelect }: Props) {
     });
 
     return () => {
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
     };
