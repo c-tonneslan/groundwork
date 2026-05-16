@@ -146,6 +146,24 @@ VALUES
     10,
     'LAHD Affordable Housing Projects (2003 to present)',
     'https://data.lacity.org/Housing-and-Real-Estate/LAHD-Affordable-Housing-Projects-List-2003-to-Pres/mymu-zi3s'
+  ),
+  (
+    'dc',
+    'Washington DC',
+    38.9072,
+    -77.0369,
+    12,
+    'DC Affordable Housing (DHCD / DCGIS)',
+    'https://opendata.dc.gov/datasets/DCGIS::affordable-housing'
+  ),
+  (
+    'phl',
+    'Philadelphia',
+    39.9526,
+    -75.1652,
+    12,
+    'Phila Division of Housing & Community Development',
+    'https://www.opendataphilly.org/dataset/affordable-housing-production'
   )
 ON CONFLICT (id) DO UPDATE SET
   name = EXCLUDED.name,
