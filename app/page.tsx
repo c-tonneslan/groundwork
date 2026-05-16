@@ -163,6 +163,8 @@ export default function HomePage() {
         /* ignore */
       }
     }
+    // Clear stale chart data when the city changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTrends(null);
     load();
     return () => {
