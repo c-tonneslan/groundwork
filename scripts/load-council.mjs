@@ -169,6 +169,126 @@ async function loadSF() {
   return out;
 }
 
+// --- LA + DC scrapers (Wikipedia API) ---
+//
+// LA City Hall and DC's per-ward sites have inconsistent or empty title
+// metadata, but Wikipedia keeps a structured "Members" table for both
+// that's machine-readable via the parse API. Names go stale on the same
+// 2-4 year cycle as the per-district sites, just less frequently for
+// chair seats.
+
+async function fetchWikipediaSectionHtml(page, sectionIndex) {
+  const url = new URL("https://en.wikipedia.org/w/api.php");
+  url.searchParams.set("action", "parse");
+  url.searchParams.set("page", page);
+  url.searchParams.set("section", String(sectionIndex));
+  url.searchParams.set("format", "json");
+  url.searchParams.set("prop", "text");
+  url.searchParams.set("origin", "*");
+  const resp = await fetch(url, { headers: { "User-Agent": UA } });
+  if (!resp.ok) return null;
+  const json = await resp.json();
+  return json?.parse?.text?.["*"] ?? null;
+}
+
+function extractWikiRoster(html, districtRegex) {
+  // Each table row has cells. Cell 0 is the seat label (e.g. "Ward 5",
+  // "5", "At-large"). The member name is in a span.fn or a title= attr.
+  const rows = html.match(/<tr[\s\S]*?<\/tr>/g) ?? [];
+  const out = new Map();
+  for (const r of rows) {
+    const tds = [...r.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+    if (tds.length < 2) continue;
+    const seat = tds[0].replace(/<[^>]+>/g, "").trim();
+    const districtMatch = seat.match(districtRegex);
+    if (!districtMatch) continue;
+    const district = districtMatch[1];
+    const nameMatch =
+      r.match(/class="fn"[^>]*>(?:<a[^>]*>)?([^<]+)</) ||
+      r.match(/<a[^>]*title="([^"]+)"/);
+    if (!nameMatch) continue;
+    const name = decodeEntities(nameMatch[1].trim());
+    if (!out.has(district)) out.set(district, name);
+  }
+  return out;
+}
+
+async function loadLA() {
+  // Find the section that holds the "Members" table.
+  const sectionsUrl = new URL("https://en.wikipedia.org/w/api.php");
+  sectionsUrl.searchParams.set("action", "parse");
+  sectionsUrl.searchParams.set("page", "Los Angeles City Council");
+  sectionsUrl.searchParams.set("format", "json");
+  sectionsUrl.searchParams.set("prop", "sections");
+  let memberSection = 3; // observed default at time of writing
+  try {
+    const resp = await fetch(sectionsUrl, { headers: { "User-Agent": UA } });
+    const json = await resp.json();
+    const found = json?.parse?.sections?.find?.((s) =>
+      /members/i.test(s.line ?? ""),
+    );
+    if (found?.index) memberSection = parseInt(found.index, 10);
+  } catch {
+    // fall through to default
+  }
+
+  const html = await fetchWikipediaSectionHtml(
+    "Los Angeles City Council",
+    memberSection,
+  );
+  if (!html) {
+    process.stdout.write("[lax] couldn't fetch wikipedia page\n");
+    return [];
+  }
+  const roster = extractWikiRoster(html, /^(\d+)$/);
+
+  const out = [];
+  for (const [district, name] of roster) {
+    const d = parseInt(district, 10);
+    if (d < 1 || d > 15) continue;
+    out.push({
+      city_id: "lax",
+      district: String(d),
+      name,
+      party: null,
+      website_url: `https://cd${d}.lacity.gov/`,
+      email: null,
+      phone: null,
+      photo_url: null,
+    });
+  }
+  process.stdout.write(`[lax] scraped ${out.length}/15 councilmembers\n`);
+  return out;
+}
+
+async function loadDC() {
+  const html = await fetchWikipediaSectionHtml(
+    "Council of the District of Columbia",
+    4,
+  );
+  if (!html) {
+    process.stdout.write("[dc] couldn't fetch wikipedia page\n");
+    return [];
+  }
+  const roster = extractWikiRoster(html, /^Ward\s+(\d+)$/i);
+
+  const out = [];
+  for (const [district, name] of roster) {
+    out.push({
+      city_id: "dc",
+      district,
+      name,
+      party: null,
+      website_url: `https://dccouncil.gov/council/ward-${district}/`,
+      email: null,
+      phone: null,
+      photo_url: null,
+    });
+  }
+  process.stdout.write(`[dc] scraped ${out.length}/8 ward councilmembers\n`);
+  return out;
+}
+
 // --- upsert ---
 
 const UPSERT_SQL = `
@@ -188,9 +308,16 @@ ON CONFLICT (city_id, district) DO UPDATE SET
 async function main() {
   const client = await pool.connect();
   try {
-    const [nyc, sf] = await Promise.all([loadNYC(), loadSF()]);
-    console.log(`upserting ${nyc.length} NYC + ${sf.length} SF reps...`);
-    for (const m of [...nyc, ...sf]) {
+    const [nyc, sf, la, dc] = await Promise.all([
+      loadNYC(),
+      loadSF(),
+      loadLA(),
+      loadDC(),
+    ]);
+    console.log(
+      `upserting ${nyc.length} NYC + ${sf.length} SF + ${la.length} LA + ${dc.length} DC reps...`,
+    );
+    for (const m of [...nyc, ...sf, ...la, ...dc]) {
       await client.query(UPSERT_SQL, [
         m.city_id, m.district, m.name, m.party,
         m.website_url, m.email, m.phone, m.photo_url,
