@@ -14,6 +14,7 @@ Built as a portfolio piece around the question: what does it actually take to co
 - **Rent burden choropleth** — toggleable layer showing what percentage of renter households in each census tract are paying >30% of income on rent, from ACS 2022 5-year.
 - **Supply–demand gap analysis** — a PostGIS spatial join that, for every tract, counts rent-burdened households against affordable units within 1 km. Returns the worst-served tracts as a clickable list with sparkline bars.
 - **Production trends** — a stacked bar chart of units produced per year, broken down by income tier (Extremely Low → Middle Income → Other). Works on the five cities whose datasets include a project start or completion date; Chicago's feed has neither.
+- **Production vs published target** — for cities with a real, public housing commitment on paper (NYC's Housing New York 2.0, SF and LA's state-mandated RHNA cycles, DC's Bowser Housing Framework), a dual-line chart of cumulative units delivered vs the linear-pace trajectory to the goal. Every target links to its source. The page at `/methodology` documents how the comparison is computed.
 
 ## Stack
 
@@ -33,6 +34,7 @@ Built as a portfolio piece around the question: what does it actually take to co
 | `/api/gap?city=…&radius=1000&limit=25` | Worst-served tracts, ordered by (burdened households / nearby affordable units). |
 | `/api/stakeholders?city=…&district=…` | The elected representative for that district. |
 | `/api/trends?city=…` | Units per year, broken down by income tier and construction type. |
+| `/api/progress?city=…` | Cumulative units delivered vs the city's published housing target (where one is on file). |
 
 ## Run locally
 

@@ -7,6 +7,7 @@ import Detail from "@/components/Detail";
 import Compare from "@/components/Compare";
 import Gap, { type GapTract } from "@/components/Gap";
 import Trends, { type TrendYear } from "@/components/Trends";
+import Progress, { type ProgressPayload } from "@/components/Progress";
 import type { Dataset, Project } from "@/lib/types";
 import type { CityMeta } from "@/lib/cities";
 
@@ -52,6 +53,8 @@ export default function HomePage() {
   const [showGap, setShowGap] = useState(false);
   const [showTrends, setShowTrends] = useState(false);
   const [trends, setTrends] = useState<TrendYear[] | null>(null);
+  const [showProgress, setShowProgress] = useState(false);
+  const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [mapFlyTo, setMapFlyTo] = useState<[number, number] | null>(null);
 
   // Fetch cities once on mount.
@@ -172,6 +175,29 @@ export default function HomePage() {
     };
   }, [activeCityId, showTrends]);
 
+  // Fetch progress-vs-target.
+  useEffect(() => {
+    if (!showProgress) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const resp = await fetch(`/api/progress?city=${activeCityId}`);
+        if (resp.ok) {
+          const data = (await resp.json()) as ProgressPayload;
+          if (!cancelled) setProgress(data);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProgress(null);
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCityId, showProgress]);
+
   // Sync activeCityId to URL.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -285,7 +311,7 @@ export default function HomePage() {
           source
         </a>
 
-        {selected && !comparing && !showGap && !showTrends ? (
+        {selected && !comparing && !showGap && !showTrends && !showProgress ? (
           <Detail
             project={selected}
             cityId={activeCityId}
@@ -310,6 +336,13 @@ export default function HomePage() {
             onClose={() => setShowTrends(false)}
           />
         ) : null}
+        {showProgress ? (
+          <Progress
+            cityName={activeCity?.name ?? activeCityId}
+            payload={progress}
+            onClose={() => setShowProgress(false)}
+          />
+        ) : null}
       </div>
 
       <Sidebar
@@ -331,6 +364,8 @@ export default function HomePage() {
         onToggleGap={() => setShowGap((g) => !g)}
         showTrends={showTrends}
         onToggleTrends={() => setShowTrends((t) => !t)}
+        showProgress={showProgress}
+        onToggleProgress={() => setShowProgress((p) => !p)}
       />
     </div>
   );

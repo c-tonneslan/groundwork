@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Search, X, MapPin, Building2, Columns3, Layers, Scale, TrendingUp } from "lucide-react";
+import { Search, X, MapPin, Building2, Columns3, Layers, Scale, TrendingUp, Target } from "lucide-react";
 import type { Project } from "@/lib/types";
 import type { CityMeta } from "@/lib/cities";
 
@@ -36,6 +36,9 @@ interface Props {
   // Phase 5: production-over-time chart.
   showTrends: boolean;
   onToggleTrends: () => void;
+  // Phase 6: production vs published target.
+  showProgress: boolean;
+  onToggleProgress: () => void;
 }
 
 export default function Sidebar({
@@ -57,6 +60,8 @@ export default function Sidebar({
   onToggleGap,
   showTrends,
   onToggleTrends,
+  showProgress,
+  onToggleProgress,
 }: Props) {
   const activeCity = cities.find((c) => c.id === activeCityId);
   const boroughs = useMemo(() => {
@@ -151,8 +156,8 @@ export default function Sidebar({
           {activeCity ? `${activeCity.name} ` : ""}projects
         </div>
 
-        {/* Analytical toggles: rent-burden choropleth, supply-demand gap, trends. */}
-        <div className="mt-2.5 grid grid-cols-3 gap-2">
+        {/* Analytical toggles: burden, supply gap, trends, vs target. */}
+        <div className="mt-2.5 grid grid-cols-2 gap-2">
           <ToggleButton
             active={showBurden}
             onClick={onToggleBurden}
@@ -170,6 +175,12 @@ export default function Sidebar({
             onClick={onToggleTrends}
             icon={<TrendingUp size={11} />}
             label="trends"
+          />
+          <ToggleButton
+            active={showProgress}
+            onClick={onToggleProgress}
+            icon={<Target size={11} />}
+            label="vs target"
           />
         </div>
       </div>
