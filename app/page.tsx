@@ -6,6 +6,8 @@ import Sidebar, { type Filters } from "@/components/Sidebar";
 import Detail from "@/components/Detail";
 import Compare from "@/components/Compare";
 import Gap, { type GapTract } from "@/components/Gap";
+import Trends, { type TrendYear } from "@/components/Trends";
+import Progress, { type ProgressPayload } from "@/components/Progress";
 import type { Dataset, Project } from "@/lib/types";
 import type { CityMeta } from "@/lib/cities";
 
@@ -49,6 +51,10 @@ export default function HomePage() {
   const [tracts, setTracts] = useState<TractFC | null>(null);
   const [gap, setGap] = useState<GapTract[] | null>(null);
   const [showGap, setShowGap] = useState(false);
+  const [showTrends, setShowTrends] = useState(false);
+  const [trends, setTrends] = useState<TrendYear[] | null>(null);
+  const [showProgress, setShowProgress] = useState(false);
+  const [progress, setProgress] = useState<ProgressPayload | null>(null);
   const [mapFlyTo, setMapFlyTo] = useState<[number, number] | null>(null);
 
   // Fetch cities once on mount.
@@ -144,6 +150,53 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [activeCityId, showBurden, showGap]);
+
+  // Fetch trends when the panel opens or the city changes.
+  useEffect(() => {
+    if (!showTrends) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const resp = await fetch(`/api/trends?city=${activeCityId}`);
+        if (resp.ok) {
+          const data = (await resp.json()) as { years: TrendYear[] };
+          if (!cancelled) setTrends(data.years);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    // Clear stale chart data when the city changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTrends(null);
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCityId, showTrends]);
+
+  // Fetch progress-vs-target.
+  useEffect(() => {
+    if (!showProgress) return;
+    let cancelled = false;
+    async function load() {
+      try {
+        const resp = await fetch(`/api/progress?city=${activeCityId}`);
+        if (resp.ok) {
+          const data = (await resp.json()) as ProgressPayload;
+          if (!cancelled) setProgress(data);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setProgress(null);
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCityId, showProgress]);
 
   // Sync activeCityId to URL.
   useEffect(() => {
@@ -258,7 +311,7 @@ export default function HomePage() {
           source
         </a>
 
-        {selected && !comparing && !showGap ? (
+        {selected && !comparing && !showGap && !showTrends && !showProgress ? (
           <Detail
             project={selected}
             cityId={activeCityId}
@@ -274,6 +327,20 @@ export default function HomePage() {
             radiusMeters={1000}
             onClose={() => setShowGap(false)}
             onFlyTo={(lat, lng) => setMapFlyTo([lat, lng])}
+          />
+        ) : null}
+        {showTrends ? (
+          <Trends
+            cityName={activeCity?.name ?? activeCityId}
+            years={trends ?? []}
+            onClose={() => setShowTrends(false)}
+          />
+        ) : null}
+        {showProgress ? (
+          <Progress
+            cityName={activeCity?.name ?? activeCityId}
+            payload={progress}
+            onClose={() => setShowProgress(false)}
           />
         ) : null}
       </div>
@@ -295,6 +362,10 @@ export default function HomePage() {
         onToggleBurden={() => setShowBurden((b) => !b)}
         showGap={showGap}
         onToggleGap={() => setShowGap((g) => !g)}
+        showTrends={showTrends}
+        onToggleTrends={() => setShowTrends((t) => !t)}
+        showProgress={showProgress}
+        onToggleProgress={() => setShowProgress((p) => !p)}
       />
     </div>
   );

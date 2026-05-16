@@ -13,9 +13,9 @@ const jbMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "groundwork — NYC affordable housing in flight",
+  title: "groundwork — affordable housing across six U.S. cities",
   description:
-    "Interactive map of every affordable housing project in New York City's HPD pipeline. Filter by borough, construction type, and unit count, and see what's actually being built in your neighborhood.",
+    "Interactive map of ~6,500 affordable-housing projects across NYC, SF, LA, DC, Chicago, and Philadelphia. Compare cities, see rent-burden by tract, find underserved neighborhoods, chart production over time, and measure each city against its own published housing target.",
 };
 
 export default function RootLayout({
