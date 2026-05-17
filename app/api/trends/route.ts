@@ -90,7 +90,14 @@ export async function GET(req: Request) {
         preservation: r.preservation,
       },
     }));
-    return NextResponse.json({ city: cityId, years });
+    return NextResponse.json(
+      { city: cityId, years },
+      {
+        headers: {
+          "cache-control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        },
+      },
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown db error";
     return NextResponse.json({ error: msg }, { status: 500 });

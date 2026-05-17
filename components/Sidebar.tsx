@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import { Search, X, MapPin, Building2, Columns3, Layers, Scale, TrendingUp, Target } from "lucide-react";
+import { Search, X, MapPin, Building2, Columns3, Layers, Scale, TrendingUp, Target, Download, Hourglass } from "lucide-react";
 import type { Project } from "@/lib/types";
 import type { CityMeta } from "@/lib/cities";
+import { profileFor } from "@/lib/cityProfiles";
 
 export interface Filters {
   query: string;
@@ -39,6 +40,9 @@ interface Props {
   // Phase 6: production vs published target.
   showProgress: boolean;
   onToggleProgress: () => void;
+  // Phase 7: affordability expiration analysis.
+  showExpiring: boolean;
+  onToggleExpiring: () => void;
 }
 
 export default function Sidebar({
@@ -62,8 +66,11 @@ export default function Sidebar({
   onToggleTrends,
   showProgress,
   onToggleProgress,
+  showExpiring,
+  onToggleExpiring,
 }: Props) {
   const activeCity = cities.find((c) => c.id === activeCityId);
+  const regionLabel = profileFor(activeCityId).regionLabel;
   const boroughs = useMemo(() => {
     const set = new Set<string>();
     for (const p of allProjects) if (p.borough) set.add(p.borough);
@@ -95,7 +102,7 @@ export default function Sidebar({
 
   return (
     <aside
-      className="flex flex-col h-full overflow-hidden border-l"
+      className="flex flex-col flex-1 min-h-0 md:h-full md:flex-none overflow-hidden border-t md:border-t-0 md:border-l"
       style={{
         borderColor: "var(--border)",
         background: "var(--surface)",
@@ -156,7 +163,7 @@ export default function Sidebar({
           {activeCity ? `${activeCity.name} ` : ""}projects
         </div>
 
-        {/* Analytical toggles: burden, supply gap, trends, vs target. */}
+        {/* Analytical toggles: burden, supply gap, trends, vs target, expiring. */}
         <div className="mt-2.5 grid grid-cols-2 gap-2">
           <ToggleButton
             active={showBurden}
@@ -181,6 +188,12 @@ export default function Sidebar({
             onClick={onToggleProgress}
             icon={<Target size={11} />}
             label="vs target"
+          />
+          <ToggleButton
+            active={showExpiring}
+            onClick={onToggleExpiring}
+            icon={<Hourglass size={11} />}
+            label="expiring"
           />
         </div>
       </div>
@@ -213,7 +226,7 @@ export default function Sidebar({
               color: "var(--text)",
             }}
           >
-            <option value="">all boroughs</option>
+            <option value="">all {regionLabel}s</option>
             {boroughs.map((b) => (
               <option key={b} value={b}>
                 {b}
@@ -280,17 +293,40 @@ export default function Sidebar({
           </select>
         </div>
 
-        {hasFilter && (
-          <button
-            type="button"
-            onClick={() =>
-              onFiltersChange({ query: "", borough: "", type: "", minUnits: 0, startYear: null })
-            }
-            className="self-start flex items-center gap-1 text-[10px] text-[var(--text-2)] hover:text-[var(--accent)]"
-          >
-            <X size={10} /> clear filters
-          </button>
-        )}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {hasFilter ? (
+            <button
+              type="button"
+              onClick={() =>
+                onFiltersChange({ query: "", borough: "", type: "", minUnits: 0, startYear: null })
+              }
+              className="flex items-center gap-1 text-[10px] text-[var(--text-2)] hover:text-[var(--accent)]"
+            >
+              <X size={10} /> clear filters
+            </button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2 text-[10px] font-mono text-[var(--text-3)]">
+            <Download size={10} />
+            <span>download</span>
+            <a
+              href={exportHref(activeCityId, filters, "csv")}
+              className="text-[var(--text-2)] hover:text-[var(--accent)] underline-offset-2 hover:underline"
+              title="CSV of the current filtered view"
+            >
+              csv
+            </a>
+            <span className="text-[var(--text-3)]">·</span>
+            <a
+              href={exportHref(activeCityId, filters, "geojson")}
+              className="text-[var(--text-2)] hover:text-[var(--accent)] underline-offset-2 hover:underline"
+              title="GeoJSON of the current filtered view"
+            >
+              geojson
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* List */}
@@ -347,6 +383,18 @@ export default function Sidebar({
       </div>
     </aside>
   );
+}
+
+function exportHref(cityId: string, f: Filters, format: "csv" | "geojson"): string {
+  const sp = new URLSearchParams();
+  sp.set("city", cityId);
+  sp.set("format", format);
+  if (f.query.trim()) sp.set("q", f.query.trim());
+  if (f.borough) sp.set("borough", f.borough);
+  if (f.type) sp.set("type", f.type);
+  if (f.minUnits > 0) sp.set("min", String(f.minUnits));
+  if (f.startYear != null) sp.set("year", String(f.startYear));
+  return `/api/export?${sp.toString()}`;
 }
 
 function ToggleButton({

@@ -1,17 +1,21 @@
 "use client";
 
-import { X, ExternalLink } from "lucide-react";
+import { X, ExternalLink, Link as LinkIcon } from "lucide-react";
 import type { Project } from "@/lib/types";
+import type { CityMeta } from "@/lib/cities";
+import { profileFor } from "@/lib/cityProfiles";
 import Stakeholders from "./Stakeholders";
 
 interface Props {
   project: Project;
   cityId: string;
+  city: CityMeta | null;
   onClose: () => void;
   onSelect: (projectId: string) => void;
 }
 
-export default function Detail({ project, cityId, onClose, onSelect }: Props) {
+export default function Detail({ project, cityId, city, onClose, onSelect }: Props) {
+  const profile = profileFor(cityId);
   const u = project.units;
   // Income-tier breakdown as percentages. Skip tiers with zero units.
   const tiers: { label: string; value: number }[] = [
@@ -32,10 +36,10 @@ export default function Detail({ project, cityId, onClose, onSelect }: Props) {
     { label: "4+ BR", value: u.fourPlusBR },
   ].filter((b) => b.value > 0);
 
-  const dsny = encodeURIComponent(
-    `${project.name}${project.address ? ", " + project.address : ""} New York`,
+  const mapsQuery = encodeURIComponent(
+    [project.name, project.address, city?.name].filter(Boolean).join(", "),
   );
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${dsny}`;
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
 
   return (
     <div
@@ -57,7 +61,7 @@ export default function Detail({ project, cityId, onClose, onSelect }: Props) {
       >
         <div className="flex-1 min-w-0">
           <div className="text-[10px] uppercase tracking-widest font-mono text-[var(--text-3)]">
-            {cityId === "sfo" ? "MOHCD" : "HPD"} Project · #{project.id}
+            {profile.agencyAbbr} Project · #{project.id}
           </div>
           <div className="text-base font-semibold text-[var(--text)] leading-tight mt-0.5">
             {project.name}
@@ -182,29 +186,41 @@ export default function Detail({ project, cityId, onClose, onSelect }: Props) {
           >
             Open in Maps
           </a>
-          <a
-            href={`mailto:contact@hpd.nyc.gov?subject=${encodeURIComponent("Project inquiry: " + project.name)}`}
-            className="flex-1 px-3 py-2 rounded-md text-[11px] font-medium text-center"
-            style={{
-              background: "var(--surface-2)",
-              border: "1px solid var(--border)",
-              color: "var(--text)",
-            }}
-          >
-            Contact HPD
-          </a>
+          {profile.contactEmail ? (
+            <a
+              href={`mailto:${profile.contactEmail}?subject=${encodeURIComponent("Project inquiry: " + project.name)}`}
+              className="flex-1 px-3 py-2 rounded-md text-[11px] font-medium text-center"
+              style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+              }}
+            >
+              Contact {profile.agencyShortName}
+            </a>
+          ) : null}
         </div>
 
-        <div className="pt-2 border-t" style={{ borderColor: "var(--border)" }}>
+        <div className="pt-2 border-t flex items-center justify-between gap-3 flex-wrap" style={{ borderColor: "var(--border)" }}>
           <a
-            href="https://data.cityofnewyork.us/dataset/Affordable-Housing-Production-by-Building/hg8x-zxpr"
-            target="_blank"
-            rel="noreferrer"
+            href={`/projects/${cityId}/${encodeURIComponent(project.id)}`}
             className="inline-flex items-center gap-1 text-[10px] font-mono text-[var(--text-3)] hover:text-[var(--accent)]"
+            title="Permanent link to this project"
           >
-            <ExternalLink size={9} />
-            source: NYC Open Data
+            <LinkIcon size={9} />
+            permalink
           </a>
+          {city?.dataSourceUrl ? (
+            <a
+              href={city.dataSourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-[10px] font-mono text-[var(--text-3)] hover:text-[var(--accent)]"
+            >
+              <ExternalLink size={9} />
+              source: {city.dataSource ?? city.name}
+            </a>
+          ) : null}
         </div>
       </div>
     </div>

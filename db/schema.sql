@@ -108,6 +108,22 @@ CREATE TABLE IF NOT EXISTS council_members (
 );
 CREATE INDEX IF NOT EXISTS council_members_city_idx ON council_members (city_id);
 
+-- District polygons keyed by (city_id, district). The "district" string
+-- matches the format projects.council_district uses for the same city
+-- (number for most cities, ward number for DC/Chicago, district number
+-- for Philly/Boston/Seattle/Austin/LA, supervisor number for SF). Used
+-- for the spatial-join backfill that fills in projects.council_district
+-- on cities whose source feed doesn't carry it.
+CREATE TABLE IF NOT EXISTS council_districts (
+  city_id     TEXT NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+  district    TEXT NOT NULL,
+  geom        GEOGRAPHY(MULTIPOLYGON, 4326) NOT NULL,
+  imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (city_id, district)
+);
+CREATE INDEX IF NOT EXISTS council_districts_geom_idx ON council_districts USING GIST (geom);
+CREATE INDEX IF NOT EXISTS council_districts_city_idx ON council_districts (city_id);
+
 -- City metadata seed. Re-run is harmless thanks to ON CONFLICT DO UPDATE.
 INSERT INTO cities (id, name, center_lat, center_lng, default_zoom, data_source, data_source_url)
 VALUES

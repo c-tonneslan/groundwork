@@ -15,6 +15,10 @@ Built as a portfolio piece around the question: what does it actually take to co
 - **Supply–demand gap analysis** — a PostGIS spatial join that, for every tract, counts rent-burdened households against affordable units within 1 km. Returns the worst-served tracts as a clickable list with sparkline bars.
 - **Production trends** — a stacked bar chart of units produced per year, broken down by income tier (Extremely Low → Middle Income → Other). Works on the five cities whose datasets include a project start or completion date; Chicago's feed has neither.
 - **Production vs published target** — for cities with a real, public housing commitment on paper (NYC's Housing New York 2.0, SF and LA's state-mandated RHNA cycles, DC's Bowser Housing Framework), a dual-line chart of cumulative units delivered vs the linear-pace trajectory to the goal. Every target links to its source. The page at `/methodology` documents how the comparison is computed.
+- **Download whatever you filtered.** The sidebar has CSV and GeoJSON links that hit `/api/export` with the current filter set. Open the CSV in Excel, drop the GeoJSON in QGIS or Mapbox, or pass either to a data sibling. Filter state also rides along in the URL, so a link captures the same view someone else opens — and the currently-open project rides along too, so a permalink can drop you onto a specific marker.
+- **Affordability expiring** — a panel that grouped projects by the year their 30-year affordability period most likely ends (estimated as completion + 30y, or start + 30y when completion isn't recorded). Surfaces both a year-by-year unit count and the largest projects rolling off in the next decade. Real expiration depends on each project's regulatory agreement; the panel says so.
+- **Permanent per-project pages.** Every project has a canonical URL at `/projects/<city>/<id>` with an auto-generated Open Graph card, so links to a specific development render with title, address, and unit count when shared on Slack, Twitter, or anywhere that respects OG.
+- **Data sources page** at `/data-sources` lists every loaded city, the source URL, last-fetched date, project count, and what the loader's known caveats are. Bookmark for the methodology audience.
 
 ## Stack
 
@@ -35,6 +39,8 @@ Built as a portfolio piece around the question: what does it actually take to co
 | `/api/stakeholders?city=…&district=…` | The elected representative for that district. |
 | `/api/trends?city=…` | Units per year, broken down by income tier and construction type. |
 | `/api/progress?city=…` | Cumulative units delivered vs the city's published housing target (where one is on file). |
+| `/api/export?city=…&format=csv\|geojson&…` | The currently filtered set as a CSV file or GeoJSON FeatureCollection. Accepts the same filter params as `/api/projects`. |
+| `/api/expiring?city=…&horizon=10` | Affordability expiration: projects whose ~30y window from completion ends in the next N years, grouped by year, with the largest ones called out. |
 
 ## Run locally
 
@@ -61,9 +67,13 @@ node scripts/load-la.mjs
 node scripts/load-dc.mjs
 node scripts/load-chi.mjs
 node scripts/load-phl.mjs
+node scripts/load-bos.mjs       # Boston (set BOS_RESOURCE_ID first)
+node scripts/load-sea.mjs       # Seattle (override SEA_DATASET_ID if needed)
+node scripts/load-aus.mjs       # Austin (override AUS_DATASET_ID if needed)
 
-# census + council are optional but the burden/gap/stakeholders panels need them
+# census + districts + council are optional but the burden/gap/stakeholders panels need them
 node scripts/load-census.mjs
+node scripts/load-districts.mjs   # pulls council/ward boundary polygons and backfills projects.council_district
 node scripts/load-council.mjs
 
 npm run dev
@@ -75,20 +85,21 @@ Without a database the app falls back to a static `nyc-housing.json` snapshot so
 ## Adding another city
 
 1. Write `scripts/load-{city}.mjs`. Use one of the existing loaders as a template — `load-phl.mjs` for ArcGIS feature services, `load-pg.mjs` for Socrata, `load-la.mjs` for a hybrid. Map the source's schema onto the `projects` table; missing columns just stay null and the UI handles it.
-2. Add a row to the `cities` table with id, name, center lat/lng, default zoom.
-3. The frontend picks it up automatically via `/api/cities`.
+2. Add a row to the `cities` table with id, name, center lat/lng, default zoom, plus the agency name + dataset URL for the source link.
+3. Append a profile to `lib/cityProfiles.ts` with the agency abbreviation, what locals call the "borough" field (ward, district, neighborhood), and a public general-inquiry email if the agency publishes one. Leaving `contactEmail` null just hides the contact button.
+4. The frontend picks it up automatically via `/api/cities`.
 
 ## Known data caveats
 
 - **Date coverage is uneven.** NYC and SF carry start dates; DC and Philly only carry completion dates; LA carries both; Chicago carries neither. The trends view uses `COALESCE(start_date, completion_date)` and falls back to "no temporal data" for Chicago.
-- **Council districts.** NYC carries them on the record. The other cities either don't, or split projects across many points without a clean cross-reference. So the stakeholders panel is most accurate in NYC and slightly speculative elsewhere.
+- **Council districts.** NYC, DC, and Austin carry them directly on the project record. For Boston, Seattle, Chicago, Philly, SF, and LA we pull each city's boundary polygon layer into a `council_districts` table and backfill `projects.council_district` via a PostGIS spatial join. Coverage after the join is >99% for every city except Seattle (where ~20 of 295 LIHTC properties sit just outside the city's seven district polygons because they're technically in suburbs that share Seattle's metro).
 - **Income tier categories** aren't strictly comparable across cities — each city defines "Extremely Low" against its own AMI. The trends view groups them as ELI / VLI / LI / Mod / Mid / Other so cross-city comparison is directional, not exact.
 
 ## Future
 
-- Affordability expiration analysis — most LIHTC projects have 30-year affordability periods. Surface which neighborhoods will lose the most affordable units in the next decade.
-- Boston, Seattle, Austin loaders.
-- CSV / GeoJSON export of any filtered view.
-- URL state for the active filter set, not just the active city.
+- Replace the placeholder dataset ids in the Boston, Seattle, and Austin loaders with real ones from each city's portal, then verify the field mappings.
+- Heatmap density layer alongside the dot map.
+- Embeddable iframe view (`/embed`) for blogs and CDC sites.
+- Affordability-expiration view that joins against actual LIHTC regulatory-period data once a usable feed is found, instead of the completion + 30y estimate.
 
 MIT. Built by [Charlie Tonneslan](https://c-tonneslan-portfolio.vercel.app/).

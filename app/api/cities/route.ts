@@ -104,7 +104,17 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({ cities });
+    return NextResponse.json(
+      { cities },
+      {
+        headers: {
+          // Underlying data refreshes when a loader runs — daily at most.
+          // Let Vercel's edge serve a cached copy for an hour, then
+          // revalidate in the background for another day.
+          "cache-control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        },
+      },
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown db error";
     return NextResponse.json({ error: msg }, { status: 500 });

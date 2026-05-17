@@ -289,6 +289,148 @@ async function loadDC() {
   return out;
 }
 
+// --- Wikipedia-backed loader for the remaining cities ---
+// Same approach as LA/DC: pull the "Members" or "Composition" section
+// from the city-council wiki page, walk the roster table, take the seat
+// label + member name out of each row. The seat-label regex captures
+// which district number is on each row.
+
+// Find the Wikipedia section that holds the current-members table.
+// "Members" tables are usually titled some variant of "Members" /
+// "City Council Members" / "Current members" / "Districts and current
+// council", with looser fallbacks like "Composition" or just "Districts".
+// We score titles so the most specific match wins.
+async function findMemberSection(page, fallback) {
+  const sectionsUrl = new URL("https://en.wikipedia.org/w/api.php");
+  sectionsUrl.searchParams.set("action", "parse");
+  sectionsUrl.searchParams.set("page", page);
+  sectionsUrl.searchParams.set("format", "json");
+  sectionsUrl.searchParams.set("prop", "sections");
+  try {
+    const resp = await fetch(sectionsUrl, { headers: { "User-Agent": UA } });
+    const json = await resp.json();
+    const sections = json?.parse?.sections ?? [];
+    function score(line) {
+      const l = line.toLowerCase();
+      // Skip historical sections — they have similar headings but their
+      // tables list past officeholders by year, not the current roster.
+      if (/past|previous|former|historical|notable|history/i.test(l)) return 0;
+      if (/current\s+council|current\s+members|districts\s+and\s+current/i.test(l)) return 5;
+      if (/^members$/i.test(l)) return 4;
+      if (/city\s+council\s+members|councilmembers|alderpeople|aldermen/i.test(l)) return 3;
+      if (/composition/i.test(l)) return 2;
+      if (/districts|wards/i.test(l)) return 1;
+      return 0;
+    }
+    let best = null;
+    let bestScore = 0;
+    for (const s of sections) {
+      const sc = score(s.line ?? "");
+      if (sc > bestScore) {
+        bestScore = sc;
+        best = s;
+      }
+    }
+    if (best?.index) return parseInt(best.index, 10);
+  } catch {
+    /* fall through */
+  }
+  return fallback;
+}
+
+async function loadWikiCity({ city_id, page, fallbackSection, districtRegex, websiteUrl, label, expected, sectionOverride }) {
+  const section =
+    sectionOverride ?? (await findMemberSection(page, fallbackSection));
+  const html = await fetchWikipediaSectionHtml(page, section);
+  if (!html) {
+    process.stdout.write(`[${city_id}] couldn't fetch wikipedia page\n`);
+    return [];
+  }
+  const roster = extractWikiRoster(html, districtRegex);
+  const out = [];
+  for (const [district, name] of roster) {
+    out.push({
+      city_id,
+      district,
+      name,
+      party: null,
+      website_url: typeof websiteUrl === "function" ? websiteUrl(district) : websiteUrl,
+      email: null,
+      phone: null,
+      photo_url: null,
+    });
+  }
+  process.stdout.write(
+    `[${city_id}] scraped ${out.length}/${expected} ${label}\n`,
+  );
+  return out;
+}
+
+const loadBoston = () =>
+  loadWikiCity({
+    city_id: "bos",
+    page: "Boston City Council",
+    fallbackSection: 3,
+    // Wikipedia labels Boston seats as "District N" for the nine
+    // district seats; the four at-large seats use "At-large" which we
+    // skip (council_districts table only carries the nine geographical
+    // districts).
+    districtRegex: /^District\s+(\d+)$/i,
+    websiteUrl: () => "https://www.boston.gov/departments/city-council",
+    label: "district councillors",
+    expected: 9,
+  });
+
+const loadSeattle = () =>
+  loadWikiCity({
+    city_id: "sea",
+    page: "Seattle City Council",
+    fallbackSection: 4,
+    // Seattle's members table uses raw single-digit seat numbers ("1"
+    // through "7") for districts and "Position 8" / "Position 9" for
+    // at-large. Limit the regex to a single digit so we get just the
+    // district seats and don't pick up 4-digit election years from
+    // the section's history table.
+    districtRegex: /^([1-7])$/,
+    websiteUrl: (d) => `https://www.seattle.gov/council/meet-the-council/district-${d}`,
+    label: "district councilmembers",
+    expected: 7,
+  });
+
+const loadAustin = () =>
+  loadWikiCity({
+    city_id: "aus",
+    page: "Austin City Council",
+    fallbackSection: 3,
+    districtRegex: /^(?:District\s+)?(\d+)$/i,
+    websiteUrl: (d) => `https://www.austintexas.gov/department/district-${d}`,
+    label: "district councilmembers",
+    expected: 10,
+  });
+
+const loadPhilly = () =>
+  loadWikiCity({
+    city_id: "phl",
+    page: "Philadelphia City Council",
+    fallbackSection: 3,
+    // Philly has 10 district + 7 at-large; skip at-large.
+    districtRegex: /^(?:District\s+|First\s+|Second\s+|Third\s+|Fourth\s+|Fifth\s+|Sixth\s+|Seventh\s+|Eighth\s+|Ninth\s+|Tenth\s+)?(\d+)(?:st|nd|rd|th)?(?:\s*District)?$/i,
+    websiteUrl: () => "https://phlcouncil.com/",
+    label: "district councilmembers",
+    expected: 10,
+  });
+
+const loadChicago = () =>
+  loadWikiCity({
+    city_id: "chi",
+    page: "Chicago City Council",
+    fallbackSection: 3,
+    districtRegex: /^(?:Ward\s+)?(\d+)(?:st|nd|rd|th)?$/i,
+    websiteUrl: (d) => `https://www.chicago.gov/city/en/about/wards/${d.padStart(2, "0")}.html`,
+    label: "alderpeople",
+    expected: 50,
+  });
+
 // --- upsert ---
 
 const UPSERT_SQL = `
@@ -308,16 +450,22 @@ ON CONFLICT (city_id, district) DO UPDATE SET
 async function main() {
   const client = await pool.connect();
   try {
-    const [nyc, sf, la, dc] = await Promise.all([
+    const [nyc, sf, la, dc, bos, sea, aus, phl, chi] = await Promise.all([
       loadNYC(),
       loadSF(),
       loadLA(),
       loadDC(),
+      loadBoston(),
+      loadSeattle(),
+      loadAustin(),
+      loadPhilly(),
+      loadChicago(),
     ]);
+    const all = [...nyc, ...sf, ...la, ...dc, ...bos, ...sea, ...aus, ...phl, ...chi];
     console.log(
-      `upserting ${nyc.length} NYC + ${sf.length} SF + ${la.length} LA + ${dc.length} DC reps...`,
+      `upserting ${all.length} reps (NYC ${nyc.length}, SF ${sf.length}, LA ${la.length}, DC ${dc.length}, BOS ${bos.length}, SEA ${sea.length}, AUS ${aus.length}, PHL ${phl.length}, CHI ${chi.length})...`,
     );
-    for (const m of [...nyc, ...sf, ...la, ...dc]) {
+    for (const m of all) {
       await client.query(UPSERT_SQL, [
         m.city_id, m.district, m.name, m.party,
         m.website_url, m.email, m.phone, m.photo_url,

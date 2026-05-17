@@ -98,23 +98,30 @@ export async function GET(req: Request) {
       cumulative.find((c) => c.year === lastDataYear) ??
       cumulative[cumulative.length - 1];
 
-    return NextResponse.json({
-      cityId,
-      target,
-      cumulative,
-      yearly,
-      lastDataYear,
-      progress: {
-        delivered: lastEntry?.cumulative ?? 0,
-        expectedByNow: lastEntry?.targetCumulative ?? 0,
-        pctOfFinalTarget: lastEntry
-          ? Math.round((lastEntry.cumulative / target.targetUnits) * 1000) / 10
-          : 0,
-        pctOfExpected: lastEntry && lastEntry.targetCumulative > 0
-          ? Math.round((lastEntry.cumulative / lastEntry.targetCumulative) * 1000) / 10
-          : 0,
+    return NextResponse.json(
+      {
+        cityId,
+        target,
+        cumulative,
+        yearly,
+        lastDataYear,
+        progress: {
+          delivered: lastEntry?.cumulative ?? 0,
+          expectedByNow: lastEntry?.targetCumulative ?? 0,
+          pctOfFinalTarget: lastEntry
+            ? Math.round((lastEntry.cumulative / target.targetUnits) * 1000) / 10
+            : 0,
+          pctOfExpected: lastEntry && lastEntry.targetCumulative > 0
+            ? Math.round((lastEntry.cumulative / lastEntry.targetCumulative) * 1000) / 10
+            : 0,
+        },
       },
-    });
+      {
+        headers: {
+          "cache-control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        },
+      },
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown db error";
     return NextResponse.json({ error: msg }, { status: 500 });
