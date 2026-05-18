@@ -13,6 +13,7 @@ const jbMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://groundwork-tan.vercel.app"),
   title: "groundwork — affordable housing across six U.S. cities",
   description:
     "Interactive map of ~6,500 affordable-housing projects across NYC, SF, LA, DC, Chicago, and Philadelphia. Compare cities, see rent-burden by tract, find underserved neighborhoods, chart production over time, and measure each city against its own published housing target.",
