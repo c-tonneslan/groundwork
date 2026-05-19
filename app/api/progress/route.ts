@@ -82,11 +82,14 @@ export async function GET(req: Request) {
       const u = byYear.get(y) ?? 0;
       runningTotal += u;
       yearly.push({ year: y, units: u });
+      // Year offset from baseline, so the linear pace target starts at 0
+      // in the baseline year (no units owed before the plan started) and
+      // lands exactly on targetUnits in targetYear.
       cumulative.push({
         year: y,
         units: u,
         cumulative: runningTotal,
-        targetCumulative: Math.round(perYearTarget * (y - target.baselineYear + 1)),
+        targetCumulative: Math.round(perYearTarget * (y - target.baselineYear)),
       });
     }
 
