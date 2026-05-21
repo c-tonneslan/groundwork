@@ -32,6 +32,16 @@ export interface ProjectRecord {
   };
 }
 
+// pg parses a Postgres DATE into a JS Date at local midnight. Reading it
+// back with local getters recovers the original calendar day on any server
+// timezone. toISOString() converts to UTC first, so a server running ahead
+// of UTC would render the date one day early.
+function toISODate(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 export async function getProject(
   cityId: string,
   externalId: string,
@@ -115,10 +125,8 @@ export async function getProject(
     postcode: r.postcode,
     councilDistrict: r.council_district,
     constructionType: r.construction_type,
-    startDate: r.start_date ? r.start_date.toISOString().slice(0, 10) : null,
-    completionDate: r.completion_date
-      ? r.completion_date.toISOString().slice(0, 10)
-      : null,
+    startDate: r.start_date ? toISODate(r.start_date) : null,
+    completionDate: r.completion_date ? toISODate(r.completion_date) : null,
     lat: Number(r.lat),
     lng: Number(r.lng),
     units: {
