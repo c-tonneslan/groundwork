@@ -290,6 +290,29 @@ export default function HomePage() {
     };
   }, [activeCityId, showExpiring]);
 
+  // Esc closes whatever overlay panel or detail card is currently up.
+  // Order matches what's visually layered: the analytical panels render
+  // on top of the detail card (and the detail card hides while one is
+  // open), so close those first.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      const target = e.target as HTMLElement | null;
+      // Don't hijack Escape while the user's typing in the search box etc.
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")) {
+        return;
+      }
+      if (comparing) { setComparing(false); return; }
+      if (showGap) { setShowGap(false); return; }
+      if (showTrends) { setShowTrends(false); return; }
+      if (showProgress) { setShowProgress(false); return; }
+      if (showExpiring) { setShowExpiring(false); return; }
+      if (selectedId) { setSelectedId(null); return; }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [comparing, showGap, showTrends, showProgress, showExpiring, selectedId]);
+
   // Sync city + filter state to URL. We use replaceState so each
   // keystroke in the search box doesn't push a history entry.
   useEffect(() => {
