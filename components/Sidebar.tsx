@@ -100,6 +100,11 @@ export default function Sidebar({
     filters.minUnits > 0 ||
     filters.startYear !== null;
 
+  const filteredUnits = useMemo(
+    () => filtered.reduce((acc, p) => acc + (p.units.total || 0), 0),
+    [filtered],
+  );
+
   return (
     <aside
       className="flex flex-col flex-1 min-h-0 md:h-full md:flex-none overflow-hidden border-t md:border-t-0 md:border-l"
@@ -161,6 +166,9 @@ export default function Sidebar({
           {hasFilter ? <span className="text-[var(--text-3)]"> of {allProjects.length.toLocaleString()}</span> : ""}
           {" "}
           {activeCity ? `${activeCity.name} ` : ""}projects
+          {filteredUnits > 0 ? (
+            <span className="text-[var(--text-3)]"> · {filteredUnits.toLocaleString()} units</span>
+          ) : null}
         </div>
 
         {/* Analytical toggles: burden, supply gap, trends, vs target, expiring. */}
