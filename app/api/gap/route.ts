@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       FROM census_tracts t
       LEFT JOIN projects p
         ON p.city_id = t.city_id
-       AND ST_DWithin(p.geom, ST_Centroid(t.geom::geometry)::geography, $2)
+       AND ST_DWithin(p.geom, ST_PointOnSurface(t.geom::geometry)::geography, $2)
       WHERE t.city_id = $1
       GROUP BY t.geoid
     )
@@ -59,8 +59,8 @@ export async function GET(req: Request) {
       CASE WHEN s.nearby_units > 0
         THEN ROUND(t.rent_burdened::numeric / s.nearby_units, 2)
         ELSE NULL END AS households_per_unit,
-      ST_Y(ST_Centroid(t.geom::geometry)) AS center_lat,
-      ST_X(ST_Centroid(t.geom::geometry)) AS center_lng
+      ST_Y(ST_PointOnSurface(t.geom::geometry)) AS center_lat,
+      ST_X(ST_PointOnSurface(t.geom::geometry)) AS center_lng
     FROM census_tracts t
     JOIN supply s ON s.geoid = t.geoid
     WHERE t.rent_burdened IS NOT NULL
@@ -95,7 +95,7 @@ export async function GET(req: Request) {
       tracts,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown db error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error(e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

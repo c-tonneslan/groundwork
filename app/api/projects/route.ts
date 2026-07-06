@@ -75,10 +75,13 @@ export async function GET(req: Request) {
     params.push(type);
   }
   if (q) {
+    // Escape LIKE metacharacters so a literal % or _ in the search box isn't
+    // treated as a wildcard (Postgres LIKE/ILIKE default escape is backslash).
+    const esc = q.replace(/[\\%_]/g, (c) => `\\${c}`);
     where.push(
       `(p.name ILIKE $${i} OR p.address ILIKE $${i} OR p.neighborhood ILIKE $${i} OR p.postcode ILIKE $${i})`,
     );
-    params.push(`%${q}%`);
+    params.push(`%${esc}%`);
     i += 1;
   }
   if (min > 0) {
@@ -191,7 +194,7 @@ export async function GET(req: Request) {
       projects,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown db error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error(e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

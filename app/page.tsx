@@ -115,6 +115,9 @@ export default function HomePage() {
     if (didMountCity.current) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedId(null);
+      // Clear the pending fly-to so we don't animate to the previous city's
+      // location (or stay parked on it) after switching cities.
+      setMapFlyTo(null);
     }
     if (didMountCity.current) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -132,7 +135,7 @@ export default function HomePage() {
           setDataset({
             source: data.city?.name ?? "API",
             sourceUrl: "",
-            fetchedAt: data.city?.fetchedAt ?? new Date().toISOString(),
+            fetchedAt: data.city?.fetchedAt ?? null,
             projectCount: data.count,
             rawRowCount: data.count,
             projects: data.projects,
@@ -522,7 +525,7 @@ export default function HomePage() {
         onFiltersChange={setFilters}
         selectedId={selectedId}
         onSelect={setSelectedId}
-        fetchedAt={dataset?.fetchedAt ?? new Date().toISOString()}
+        fetchedAt={dataset?.fetchedAt ?? null}
         cities={cities}
         activeCityId={activeCityId}
         onCityChange={onCityChange}

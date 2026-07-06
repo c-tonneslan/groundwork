@@ -99,7 +99,7 @@ export async function GET(req: Request) {
       })),
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown db error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error(e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

@@ -95,8 +95,13 @@ export async function GET(req: Request) {
 
     // Find the last year with actual data so the frontend can render
     // "as of YEAR, you are at X% of target" honestly.
+    // Clamp to targetYear: the cumulative loop stops at targetYear, so any
+    // rows dated after it aren't in `cumulative`. Reporting a lastDataYear past
+    // targetYear would mismatch the delivered total (which stops at target).
     const lastDataYear =
-      res.rows.length > 0 ? res.rows[res.rows.length - 1].year : target.baselineYear;
+      res.rows.length > 0
+        ? Math.min(res.rows[res.rows.length - 1].year, target.targetYear)
+        : target.baselineYear;
     const lastEntry =
       cumulative.find((c) => c.year === lastDataYear) ??
       cumulative[cumulative.length - 1];
@@ -126,7 +131,7 @@ export async function GET(req: Request) {
       },
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown db error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error(e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

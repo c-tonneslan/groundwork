@@ -21,7 +21,7 @@ interface Props {
   onFiltersChange: (next: Filters) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
-  fetchedAt: string;
+  fetchedAt: string | null;
   // Multi-city support. When `cities.length > 1` we render a switcher
   // and a Compare button at the top.
   cities: CityMeta[];
@@ -119,7 +119,9 @@ export default function Sidebar({
             groundwork
           </span>
           <span className="text-[10px] text-[var(--text-3)] font-mono">
-            data {new Date(fetchedAt).toISOString().slice(0, 10)}
+            {fetchedAt
+              ? `data ${new Date(fetchedAt).toISOString().slice(0, 10)}`
+              : "data date unknown"}
           </span>
         </div>
 

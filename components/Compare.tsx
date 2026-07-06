@@ -19,12 +19,16 @@ export default function Compare({ cities, onClose }: Props) {
     const affordableTotal =
       s.units.extremelyLow + s.units.veryLow + s.units.low + s.units.moderate + s.units.middle;
     const newPct = (s.construction.newConstruction / Math.max(1, s.projects)) * 100;
+    // Compute preservation share from its own count — not 100 - newPct, which
+    // overstates it when some projects are neither new nor preservation.
+    const presPct = (s.construction.preservation / Math.max(1, s.projects)) * 100;
     return {
       city: c,
       projects: s.projects,
       total: s.units.total,
       affordable: affordableTotal,
       newPct,
+      presPct,
       tiers: s.units,
       span:
         s.earliestStart && s.latestStart
@@ -115,7 +119,7 @@ export default function Compare({ cities, onClose }: Props) {
             <ValueCell
               key={r.city.id + "pr"}
               value={`${r.city.stats!.construction.preservation}`}
-              hint={`${(100 - r.newPct).toFixed(0)}%`}
+              hint={`${r.presPct.toFixed(0)}%`}
             />
           ))}
         </div>

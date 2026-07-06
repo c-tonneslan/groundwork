@@ -39,7 +39,7 @@ export interface Project {
 export interface Dataset {
   source: string;
   sourceUrl: string;
-  fetchedAt: string;
+  fetchedAt: string | null;
   projectCount: number;
   rawRowCount: number;
   projects: Project[];

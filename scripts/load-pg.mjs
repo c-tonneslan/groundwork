@@ -243,7 +243,9 @@ async function main() {
     await client.query("COMMIT");
     console.log("done.");
   } catch (e) {
-    await pool.query("ROLLBACK").catch(() => {});
+    // Roll back on the same connection that holds the open transaction, not a
+    // fresh pool connection (which would leave the real transaction dangling).
+    await client.query("ROLLBACK").catch(() => {});
     throw e;
   } finally {
     client.release();

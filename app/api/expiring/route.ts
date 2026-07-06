@@ -89,7 +89,7 @@ export async function GET(req: Request) {
         WHERE city_id = $1
           AND COALESCE(completion_date, start_date) IS NOT NULL
           AND EXTRACT(YEAR FROM (COALESCE(completion_date, start_date) + INTERVAL '30 years')) BETWEEN $2 AND $3
-        ORDER BY units_total DESC NULLS LAST
+        ORDER BY units_total DESC NULLS LAST, expires_year ASC, external_id ASC
         LIMIT 20
         `,
         [cityId, thisYear, throughYear],
@@ -141,7 +141,7 @@ export async function GET(req: Request) {
       },
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown db error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error(e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 }

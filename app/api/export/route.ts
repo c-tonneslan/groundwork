@@ -58,7 +58,11 @@ const COLUMNS = [
 function csvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
   if (v instanceof Date) return v.toISOString().slice(0, 10);
-  const s = String(v);
+  let s = String(v);
+  // Neutralize spreadsheet formula injection: a cell that opens with =, +, -,
+  // @, or a control char is treated as a formula by Excel/Sheets. Prefix a
+  // single quote so the value renders as literal text.
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   // RFC 4180: wrap in quotes if the field contains a comma, quote, or
   // newline. Escape embedded quotes by doubling them.
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -119,10 +123,12 @@ export async function GET(req: Request) {
     params.push(type);
   }
   if (q) {
+    // Escape LIKE metacharacters (matches /api/projects behavior).
+    const esc = q.replace(/[\\%_]/g, (c) => `\\${c}`);
     where.push(
       `(p.name ILIKE $${i} OR p.address ILIKE $${i} OR p.neighborhood ILIKE $${i} OR p.postcode ILIKE $${i})`,
     );
-    params.push(`%${q}%`);
+    params.push(`%${esc}%`);
     i += 1;
   }
   if (min > 0) {
@@ -158,8 +164,8 @@ export async function GET(req: Request) {
     const res = await db.query(sql, params);
     rows = res.rows;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "unknown db error";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error(e);
+    return NextResponse.json({ error: "internal error" }, { status: 500 });
   }
 
   const stamp = new Date().toISOString().slice(0, 10);
