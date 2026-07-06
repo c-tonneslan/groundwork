@@ -5,6 +5,7 @@ import { Search, X, MapPin, Building2, Columns3, Layers, Scale, TrendingUp, Targ
 import type { Project } from "@/lib/types";
 import type { CityMeta } from "@/lib/cities";
 import { profileFor } from "@/lib/cityProfiles";
+import AskBar from "./AskBar";
 
 export interface Filters {
   query: string;
@@ -172,6 +173,15 @@ export default function Sidebar({
             <span className="text-[var(--text-3)]"> · {filteredUnits.toLocaleString()} units</span>
           ) : null}
         </div>
+
+        {/* Plain-English search: NL question -> constrained filter via /api/ask. */}
+        <AskBar
+          city={activeCityId}
+          regionLabel={regionLabel}
+          boroughs={boroughs}
+          types={types}
+          onApply={onFiltersChange}
+        />
 
         {/* Analytical toggles: burden, supply gap, trends, vs target, expiring. */}
         <div className="mt-2.5 grid grid-cols-2 gap-2">

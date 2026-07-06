@@ -6,6 +6,7 @@ Built as a portfolio piece around the question: what does it actually take to co
 
 ## What you can do on the page
 
+- **Ask in plain English.** A natural-language search box turns a question like *"large new construction since 2020"* into the app's own filters via an LLM. The model is constrained to the fixed filter schema (borough / construction type / min units / start year / text) and its output is whitelisted against the real values for the active city — it never writes SQL — and it honestly **refuses** when a question needs something the data can't express (transit proximity, rent burden, bedroom mix, price). Requires `ANTHROPIC_API_KEY` (optionally `ANTHROPIC_MODEL`); degrades to a clear message when unset.
 - **Map every project** in the active city (HPD pipeline in NYC, MOHCD in SF, HCID/LA, DC's affordable housing inventory, Chicago's affordable rental inventory, Phila's affordable housing production). Marker radius scales with unit count; clusters at city-wide zoom.
 - **Filter** by free-text search, borough/area, construction type (new vs preservation), start year, and project size. Results update the map and the list together.
 - **Click any marker** to see a detail panel with unit totals, AMI breakdown, bedroom mix, council district + the elected representative scraped from public sources, community board, an "open in Google Maps" link, and a one-click email link.
