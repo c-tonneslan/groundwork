@@ -1,22 +1,55 @@
 // POST /api/ask
 //
-// Natural-language search. Translates a plain-English question ("family-sized
-// new construction in Brooklyn since 2020") into the SAME constrained filter
-// object the sidebar produces { query, borough, type, minUnits, startYear }.
+// Natural-language search + grounded Q&A. The model maps a plain-English
+// question onto one of three intents (see lib/ask): "filter" (narrow the map),
+// "answer" (compute a cited number over a filter scope), or "refuse". It never
+// writes SQL — it picks a metric and a filter, both whitelisted here, and the
+// answer runs as a fixed parameterized aggregate.
 //
-// Design note: the model NEVER writes SQL. It only picks values for a fixed
-// filter schema, and the API whitelists every value against the vocabulary the
-// client sent (real borough/type values for that city). So there's no injection
-// surface — the returned filter runs through the existing parameterized query.
-// If the question needs a field the data can't express (transit proximity, rent
-// burden, bedroom mix, price), the model REFUSES rather than inventing a filter.
+// Hardening: per-IP rate limit + a short-TTL response cache keyed on the
+// question, so repeat asks are free and the paid API can't be trivially spammed.
+// Both are in-memory (per serverless instance); swap for Upstash Redis if you
+// need cross-instance limits.
 
 import { NextResponse } from "next/server";
+import { db, hasDatabase } from "@/lib/db";
+import {
+  buildSystemPrompt,
+  interpretModelOutput,
+  buildProjectWhere,
+  type AskFilters,
+  type AnswerMetric,
+} from "@/lib/ask";
 
 export const runtime = "nodejs";
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
-const NEXT_YEAR = new Date().getFullYear() + 5;
+
+// --- in-memory rate limit + cache (per serverless instance) ----------------
+const RL_WINDOW_MS = 60_000;
+const RL_MAX = 20;
+const rl = new Map<string, { n: number; reset: number }>();
+function rateLimited(ip: string, now: number): boolean {
+  const e = rl.get(ip);
+  if (!e || now > e.reset) {
+    rl.set(ip, { n: 1, reset: now + RL_WINDOW_MS });
+    return false;
+  }
+  e.n += 1;
+  return e.n > RL_MAX;
+}
+
+const CACHE_TTL_MS = 10 * 60_000;
+const cache = new Map<string, { at: number; body: unknown }>();
+function cacheGet(key: string, now: number): unknown | null {
+  const e = cache.get(key);
+  if (!e || now - e.at > CACHE_TTL_MS) return null;
+  return e.body;
+}
+function cacheSet(key: string, body: unknown, now: number): void {
+  if (cache.size > 500) cache.clear();
+  cache.set(key, { at: now, body });
+}
 
 interface AskBody {
   question?: string;
@@ -26,29 +59,85 @@ interface AskBody {
   types?: string[];
 }
 
-function systemPrompt(regionLabel: string, boroughs: string[], types: string[]): string {
-  return `You translate a plain-English question about affordable-housing projects into a JSON filter. You can ONLY filter on these five fields:
-- query: free text matched against project name / address / neighborhood. String, or "" for none.
-- borough: the local "${regionLabel}" field. MUST be exactly one of: ${JSON.stringify(boroughs)} — or "" for any.
-- type: construction type. MUST be exactly one of: ${JSON.stringify(types)} — or "" for any.
-- minUnits: minimum total units. Integer >= 0 (0 means no minimum).
-- startYear: include only projects that started in or after this 4-digit year. Integer, or null.
+// Run the aggregate for an "answer" intent and shape a cited response.
+async function computeAnswer(cityId: string, metric: AnswerMetric, filters: AskFilters, interpretation: string) {
+  const { clauses, params } = buildProjectWhere(filters, 2);
+  const where = ["p.city_id = $1", ...clauses].join(" AND ");
+  const p = [cityId, ...params];
 
-Rules:
-- Map the question onto these fields only. Match borough/type case-insensitively to the CLOSEST allowed value; never output a value that is not in the allowed list.
-- "large"/"big" -> a reasonable minUnits (e.g. 100). "family-sized" is about bedroom counts, which you CANNOT filter — treat it as unsupported.
-- If the question needs anything these five fields cannot express (proximity to transit/subway, rent burden, expiring affordability, income tier, bedroom mix, cheapest/price, distance), DO NOT invent a filter. Set "refuse": true and briefly say what you can't do, plus the closest supported alternative.
-- Respond with ONLY a JSON object, no prose or markdown, in exactly this shape:
-{"refuse": false, "filters": {"query": "", "borough": "", "type": "", "minUnits": 0, "startYear": null}, "interpretation": "short human summary of the filter"}
-or, to refuse:
-{"refuse": true, "refusal": "one short sentence"}`;
-}
+  let answer = "";
+  let detail: Record<string, number | null> | null = null;
 
-function extractJson(text: string): unknown {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) throw new Error("no json in model output");
-  return JSON.parse(text.slice(start, end + 1));
+  if (metric === "count") {
+    const r = await db.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM projects p WHERE ${where}`, p);
+    const n = r.rows[0]?.n ?? 0;
+    answer = `${n.toLocaleString()} ${n === 1 ? "project matches" : "projects match"}.`;
+    detail = { projects: n };
+  } else if (metric === "total_units") {
+    const r = await db.query<{ units: number; n: number }>(
+      `SELECT COALESCE(SUM(p.units_total),0)::int AS units, COUNT(*)::int AS n FROM projects p WHERE ${where}`,
+      p,
+    );
+    const { units = 0, n = 0 } = r.rows[0] ?? {};
+    answer = `${units.toLocaleString()} units across ${n.toLocaleString()} ${n === 1 ? "project" : "projects"}.`;
+    detail = { units, projects: n };
+  } else if (metric === "units_by_tier") {
+    const r = await db.query<Record<string, number>>(
+      `SELECT
+         COALESCE(SUM(p.units_extremely_low),0)::int AS extremely_low,
+         COALESCE(SUM(p.units_very_low),0)::int      AS very_low,
+         COALESCE(SUM(p.units_low),0)::int           AS low,
+         COALESCE(SUM(p.units_moderate),0)::int      AS moderate,
+         COALESCE(SUM(p.units_middle),0)::int        AS middle,
+         COUNT(*)::int                               AS n
+       FROM projects p WHERE ${where}`,
+      p,
+    );
+    const row = r.rows[0] ?? {};
+    detail = {
+      extremelyLow: row.extremely_low ?? 0,
+      veryLow: row.very_low ?? 0,
+      low: row.low ?? 0,
+      moderate: row.moderate ?? 0,
+      middle: row.middle ?? 0,
+      projects: row.n ?? 0,
+    };
+    answer =
+      `Extremely low ${(row.extremely_low ?? 0).toLocaleString()} · ` +
+      `very low ${(row.very_low ?? 0).toLocaleString()} · ` +
+      `low ${(row.low ?? 0).toLocaleString()} · ` +
+      `moderate ${(row.moderate ?? 0).toLocaleString()} · ` +
+      `middle ${(row.middle ?? 0).toLocaleString()} units.`;
+  } else {
+    // date_range
+    const r = await db.query<{ earliest: number | null; latest: number | null; n: number }>(
+      `SELECT EXTRACT(YEAR FROM MIN(p.start_date))::int AS earliest,
+              EXTRACT(YEAR FROM MAX(p.start_date))::int AS latest,
+              COUNT(*)::int AS n
+       FROM projects p WHERE ${where}`,
+      p,
+    );
+    const { earliest = null, latest = null, n = 0 } = r.rows[0] ?? {};
+    answer = earliest && latest ? `Started between ${earliest} and ${latest} (${n.toLocaleString()} projects).` : "No dated projects match.";
+    detail = { earliest, latest, projects: n };
+  }
+
+  // Cite the largest matching projects so the number is inspectable.
+  const cites = await db.query<{ name: string; borough: string | null; units_total: number }>(
+    `SELECT p.name, p.borough, p.units_total FROM projects p WHERE ${where} ORDER BY p.units_total DESC NULLS LAST LIMIT 5`,
+    p,
+  );
+
+  return {
+    ok: true,
+    kind: "answer" as const,
+    metric,
+    filters,
+    interpretation,
+    answer,
+    detail,
+    sources: cites.rows.map((c) => ({ name: c.name, borough: c.borough, units: c.units_total })),
+  };
 }
 
 export async function POST(req: Request) {
@@ -60,6 +149,15 @@ export async function POST(req: Request) {
     );
   }
 
+  const now = Date.now();
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  if (rateLimited(ip, now)) {
+    return NextResponse.json(
+      { ok: false, refusal: "Too many questions in a short window — give it a moment." },
+      { status: 429 },
+    );
+  }
+
   let body: AskBody;
   try {
     body = await req.json();
@@ -68,26 +166,27 @@ export async function POST(req: Request) {
   }
 
   const question = (body.question ?? "").trim().slice(0, 300);
+  const city = (body.city ?? "nyc").toLowerCase();
   const regionLabel = (body.regionLabel ?? "area").slice(0, 40);
-  const boroughs = Array.isArray(body.boroughs) ? body.boroughs.filter((b) => typeof b === "string").slice(0, 200) : [];
-  const types = Array.isArray(body.types) ? body.types.filter((t) => typeof t === "string").slice(0, 50) : [];
+  const boroughs = Array.isArray(body.boroughs) ? body.boroughs.filter((b): b is string => typeof b === "string").slice(0, 200) : [];
+  const types = Array.isArray(body.types) ? body.types.filter((t): t is string => typeof t === "string").slice(0, 50) : [];
   if (!question) {
     return NextResponse.json({ ok: false, refusal: "Ask a question first." }, { status: 400 });
   }
 
+  const cacheKey = `${city}|${question.toLowerCase()}`;
+  const cached = cacheGet(cacheKey, now);
+  if (cached) return NextResponse.json(cached);
+
   try {
     const resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 400,
         temperature: 0,
-        system: systemPrompt(regionLabel, boroughs, types),
+        system: buildSystemPrompt(regionLabel, boroughs, types),
         messages: [{ role: "user", content: question }],
       }),
     });
@@ -99,39 +198,24 @@ export async function POST(req: Request) {
 
     const data = (await resp.json()) as { content?: { type: string; text?: string }[] };
     const text = (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
-    const parsed = extractJson(text) as {
-      refuse?: boolean;
-      refusal?: string;
-      interpretation?: string;
-      filters?: { query?: unknown; borough?: unknown; type?: unknown; minUnits?: unknown; startYear?: unknown };
-    };
+    const result = interpretModelOutput(text, { boroughs, types, maxYear: new Date().getFullYear() + 5 });
 
-    if (parsed.refuse || !parsed.filters) {
-      return NextResponse.json({
-        ok: false,
-        refusal: (parsed.refusal ?? "That can't be answered with the available filters.").slice(0, 240),
-      });
+    let responseBody: unknown;
+    if (result.kind === "refuse") {
+      responseBody = { ok: false, refusal: result.refusal };
+    } else if (result.kind === "answer") {
+      if (!hasDatabase()) {
+        // Fall back to just applying the scope filter when we can't aggregate.
+        responseBody = { ok: true, kind: "filter", filters: result.filters, interpretation: result.interpretation };
+      } else {
+        responseBody = await computeAnswer(city, result.metric, result.filters, result.interpretation);
+      }
+    } else {
+      responseBody = { ok: true, kind: "filter", filters: result.filters, interpretation: result.interpretation };
     }
 
-    // Whitelist every value against what the client actually has. Anything the
-    // model returned that isn't a real option is dropped, not trusted.
-    const f = parsed.filters;
-    const borough = typeof f.borough === "string" && boroughs.includes(f.borough) ? f.borough : "";
-    const type = typeof f.type === "string" && types.includes(f.type) ? f.type : "";
-    const minUnitsRaw = Number(f.minUnits);
-    const minUnits = Number.isFinite(minUnitsRaw) ? Math.max(0, Math.min(100000, Math.round(minUnitsRaw))) : 0;
-    const yearRaw = Number(f.startYear);
-    const startYear =
-      f.startYear != null && Number.isFinite(yearRaw) && yearRaw >= 1900 && yearRaw <= NEXT_YEAR
-        ? Math.round(yearRaw)
-        : null;
-    const query = typeof f.query === "string" ? f.query.trim().slice(0, 200) : "";
-
-    return NextResponse.json({
-      ok: true,
-      filters: { query, borough, type, minUnits, startYear },
-      interpretation: (parsed.interpretation ?? "Filter applied.").slice(0, 240),
-    });
+    cacheSet(cacheKey, responseBody, now);
+    return NextResponse.json(responseBody);
   } catch (e) {
     console.error(e);
     return NextResponse.json({ ok: false, refusal: "Couldn't interpret that question." }, { status: 200 });

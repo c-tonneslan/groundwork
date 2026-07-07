@@ -4,10 +4,17 @@ import { useState } from "react";
 import { Sparkles, CornerDownLeft, Loader2 } from "lucide-react";
 import type { Filters } from "./Sidebar";
 
-// Plain-English search. Posts the question + the current city's real filter
-// vocabulary to /api/ask, which returns a constrained { query, borough, type,
-// minUnits, startYear } filter (or a refusal). On success we apply it through
-// the same onFiltersChange path the manual controls use.
+type Source = { name: string; borough: string | null; units: number };
+type Result =
+  | { kind: "info"; text: string }
+  | { kind: "warn"; text: string }
+  | { kind: "answer"; answer: string; interpretation: string; sources: Source[] };
+
+// Plain-English search + grounded Q&A. Posts the question + the active city's
+// real filter vocabulary to /api/ask, which returns a "filter" (narrow the map),
+// an "answer" (a cited number over a scope), or a refusal. Both filter and
+// answer apply the scope through the same onFiltersChange path the manual
+// controls use.
 export default function AskBar({
   city,
   regionLabel,
@@ -23,14 +30,14 @@ export default function AskBar({
 }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<{ kind: "info" | "warn"; text: string } | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const question = q.trim();
     if (!question || loading) return;
     setLoading(true);
-    setMsg(null);
+    setResult(null);
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
@@ -38,14 +45,22 @@ export default function AskBar({
         body: JSON.stringify({ question, city, regionLabel, boroughs, types }),
       });
       const data = await res.json();
-      if (data.ok && data.filters) {
-        onApply(data.filters as Filters);
-        setMsg({ kind: "info", text: data.interpretation || "Filter applied." });
+      if (data.ok && data.filters) onApply(data.filters as Filters);
+
+      if (data.ok && data.kind === "answer") {
+        setResult({
+          kind: "answer",
+          answer: data.answer ?? "",
+          interpretation: data.interpretation ?? "",
+          sources: Array.isArray(data.sources) ? data.sources.slice(0, 5) : [],
+        });
+      } else if (data.ok) {
+        setResult({ kind: "info", text: data.interpretation || "Filter applied." });
       } else {
-        setMsg({ kind: "warn", text: data.refusal || "Couldn't interpret that." });
+        setResult({ kind: "warn", text: data.refusal || "Couldn't interpret that." });
       }
     } catch {
-      setMsg({ kind: "warn", text: "Ask failed — try again." });
+      setResult({ kind: "warn", text: "Ask failed — try again." });
     } finally {
       setLoading(false);
     }
@@ -65,11 +80,7 @@ export default function AskBar({
           placeholder="Ask in plain English…"
           aria-label="Ask about the housing data in plain English"
           className="w-full pl-8 pr-8 py-1.5 rounded-md text-xs"
-          style={{
-            background: "var(--surface-2)",
-            border: "1px solid var(--accent)",
-            color: "var(--text)",
-          }}
+          style={{ background: "var(--surface-2)", border: "1px solid var(--accent)", color: "var(--text)" }}
         />
         <button
           type="submit"
@@ -81,17 +92,35 @@ export default function AskBar({
           {loading ? <Loader2 size={13} className="animate-spin" /> : <CornerDownLeft size={13} />}
         </button>
       </form>
-      {msg ? (
-        <p
-          className="mt-1.5 text-[11px] leading-snug"
-          style={{ color: msg.kind === "warn" ? "var(--text-2)" : "var(--text-2)" }}
+
+      {result?.kind === "answer" ? (
+        <div
+          className="mt-1.5 rounded-md p-2 text-[11px]"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
         >
-          {msg.kind === "warn" ? "↪ " : "✓ "}
-          {msg.text}
+          <p style={{ color: "var(--text)" }}>{result.answer}</p>
+          {result.interpretation ? (
+            <p className="mt-0.5" style={{ color: "var(--text-3)" }}>{result.interpretation}</p>
+          ) : null}
+          {result.sources.length > 0 ? (
+            <ul className="mt-1.5 space-y-0.5" style={{ color: "var(--text-2)" }}>
+              {result.sources.map((s, idx) => (
+                <li key={idx} className="truncate">
+                  · {s.name}
+                  {s.units ? <span style={{ color: "var(--text-3)" }}> ({s.units.toLocaleString()})</span> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : result ? (
+        <p className="mt-1.5 text-[11px] leading-snug" style={{ color: "var(--text-2)" }}>
+          {result.kind === "warn" ? "↪ " : "✓ "}
+          {result.text}
         </p>
       ) : (
         <p className="mt-1 text-[10px]" style={{ color: "var(--text-3)" }}>
-          e.g. “large new construction since 2020”
+          e.g. “how many units in Brooklyn since 2020?”
         </p>
       )}
     </div>
