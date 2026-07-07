@@ -74,6 +74,9 @@ export default function HomePage() {
   // should survive that first render, but every subsequent city switch
   // resets filters (boroughs/types differ city-to-city).
   const didMountCity = useRef(false);
+  // Filters queued by an "ask" that also switched cities, applied once the new
+  // city's data loads (so the city-switch reset doesn't clobber them).
+  const pendingFilters = useRef<Filters | null>(null);
 
   const [showBurden, setShowBurden] = useState(false);
   const [tracts, setTracts] = useState<TractFC | null>(null);
@@ -120,8 +123,10 @@ export default function HomePage() {
       setMapFlyTo(null);
     }
     if (didMountCity.current) {
+      // Apply filters queued by an "ask" that switched cities; otherwise reset.
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFilters(INITIAL_FILTERS);
+      setFilters(pendingFilters.current ?? INITIAL_FILTERS);
+      pendingFilters.current = null;
     } else {
       didMountCity.current = true;
     }
@@ -382,6 +387,22 @@ export default function HomePage() {
     setComparing(false);
   }, []);
 
+  // A natural-language result may target a different city than the one on
+  // screen. Switch to it (queuing the filters for after its data loads), or
+  // just apply the filters when it's the same city.
+  const handleAskResult = useCallback(
+    ({ city, filters }: { city: string; filters: Filters }) => {
+      if (city && city !== activeCityId) {
+        pendingFilters.current = filters;
+        setActiveCityId(city);
+        setComparing(false);
+      } else {
+        setFilters(filters);
+      }
+    },
+    [activeCityId],
+  );
+
   return (
     <div className="fixed inset-0 flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_360px] md:grid-rows-[100vh]">
       <div className="relative h-[55vh] md:h-full md:flex-none">
@@ -525,6 +546,7 @@ export default function HomePage() {
         filtered={filtered}
         filters={filters}
         onFiltersChange={setFilters}
+        onAskResult={handleAskResult}
         selectedId={selectedId}
         onSelect={setSelectedId}
         fetchedAt={dataset?.fetchedAt ?? null}

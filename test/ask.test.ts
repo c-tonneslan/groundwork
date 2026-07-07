@@ -3,7 +3,7 @@
 // validated result. Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { interpretModelOutput, validateFilters, heuristicParse } from "../lib/ask.ts";
+import { interpretModelOutput, validateFilters, heuristicParse, resolveCity } from "../lib/ask.ts";
 
 const V = {
   boroughs: ["Brooklyn", "Manhattan", "Queens"],
@@ -126,4 +126,30 @@ test("parser: transit/bedroom/price questions refuse", () => {
 
 test("parser: returns null when it can't tell (escalate to model)", () => {
   assert.equal(heuristicParse("tell me something interesting", V), null);
+});
+
+// --- cross-city place resolution ---
+
+const AVAIL = ["nyc", "phl", "sfo", "chi", "dc"];
+
+test("resolveCity: a borough of another city switches city", () => {
+  const r = resolveCity("how many units in Brooklyn", AVAIL, "phl");
+  assert.equal(r.city, "nyc");
+  assert.equal(r.borough, "Brooklyn");
+});
+
+test("resolveCity: a city name switches city", () => {
+  assert.equal(resolveCity("projects in Chicago", AVAIL, "nyc").city, "chi");
+  assert.equal(resolveCity("units in philly since 2018", AVAIL, "nyc").city, "phl");
+});
+
+test("resolveCity: falls back to the active city when no place is named", () => {
+  const r = resolveCity("large new construction since 2020", AVAIL, "phl");
+  assert.equal(r.city, "phl");
+  assert.equal(r.borough, "");
+});
+
+test("resolveCity: won't switch to a city that isn't loaded", () => {
+  // nyc absent from the available set -> stays on the active city.
+  assert.equal(resolveCity("units in Brooklyn", ["phl", "chi"], "phl").city, "phl");
 });

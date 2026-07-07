@@ -20,6 +20,7 @@ import {
   buildSystemPrompt,
   heuristicParse,
   interpretModelOutput,
+  resolveCity,
   buildProjectWhere,
   type AskResult,
   type AskFilters,
@@ -59,9 +60,17 @@ function cacheSet(key: string, body: unknown, now: number): void {
 interface AskBody {
   question?: string;
   city?: string;
+  cityIds?: string[];
   regionLabel?: string;
   boroughs?: string[];
   types?: string[];
+}
+
+// If the question named a place in another city, resolveCity gives us its
+// borough; fold it into the parsed filter when the parser didn't already set one.
+function withResolvedBorough(result: AskResult, borough: string): AskResult {
+  if (!borough || result.kind === "refuse" || result.filters.borough) return result;
+  return { ...result, filters: { ...result.filters, borough } };
 }
 
 // Run the aggregate for an "answer" intent and shape a cited response.
@@ -147,10 +156,10 @@ async function computeAnswer(cityId: string, metric: AnswerMetric, filters: AskF
 async function buildResponse(result: AskResult, city: string, source: "rules" | "model"): Promise<unknown> {
   if (result.kind === "refuse") return { ok: false, refusal: result.refusal, source };
   if (result.kind === "answer" && hasDatabase()) {
-    return { ...(await computeAnswer(city, result.metric, result.filters, result.interpretation)), source };
+    return { ...(await computeAnswer(city, result.metric, result.filters, result.interpretation)), city, source };
   }
   // filter, or answer with no DB to aggregate against -> just apply the scope
-  return { ok: true, kind: "filter", filters: result.filters, interpretation: result.interpretation, source };
+  return { ok: true, kind: "filter", filters: result.filters, interpretation: result.interpretation, city, source };
 }
 
 async function askModel(question: string, system: string): Promise<string> {
@@ -183,11 +192,19 @@ export async function POST(req: Request) {
   const regionLabel = (body.regionLabel ?? "area").slice(0, 40);
   const boroughs = Array.isArray(body.boroughs) ? body.boroughs.filter((b): b is string => typeof b === "string").slice(0, 200) : [];
   const types = Array.isArray(body.types) ? body.types.filter((t): t is string => typeof t === "string").slice(0, 50) : [];
+  const cityIds = Array.isArray(body.cityIds) ? body.cityIds.filter((c): c is string => typeof c === "string").slice(0, 50) : [];
   if (!question) {
     return NextResponse.json({ ok: false, refusal: "Ask a question first." }, { status: 400 });
   }
 
-  const cacheKey = `${city}|${question.toLowerCase()}`;
+  // The question may name a place in a different city than the one on screen.
+  const effective = resolveCity(question, cityIds, city);
+  const effCity = effective.city;
+  // Use the resolved city's vocabulary. When it isn't the active city we only
+  // know the resolved borough (not its full list), which is enough to filter.
+  const effBoroughs = effCity === city ? boroughs : effective.borough ? [effective.borough] : [];
+
+  const cacheKey = `${effCity}|${question.toLowerCase()}`;
   const cached = cacheGet(cacheKey, now);
   if (cached) return NextResponse.json(cached);
 
@@ -195,15 +212,16 @@ export async function POST(req: Request) {
 
   try {
     // Stage 1: deterministic parser (free, offline).
-    const heur = heuristicParse(question, { boroughs, types, maxYear });
+    const heur = heuristicParse(question, { boroughs: effBoroughs, types, maxYear });
     let responseBody: unknown;
 
     if (heur) {
-      responseBody = await buildResponse(heur, city, "rules");
+      responseBody = await buildResponse(withResolvedBorough(heur, effective.borough), effCity, "rules");
     } else if (process.env.ANTHROPIC_API_KEY) {
       // Stage 2: escalate to the model for the long tail.
-      const text = await askModel(question, buildSystemPrompt(regionLabel, boroughs, types));
-      responseBody = await buildResponse(interpretModelOutput(text, { boroughs, types, maxYear }), city, "model");
+      const text = await askModel(question, buildSystemPrompt(regionLabel, effBoroughs, types));
+      const parsed = interpretModelOutput(text, { boroughs: effBoroughs, types, maxYear });
+      responseBody = await buildResponse(withResolvedBorough(parsed, effective.borough), effCity, "model");
     } else {
       responseBody = {
         ok: false,

@@ -17,16 +17,18 @@ type Result =
 // controls use.
 export default function AskBar({
   city,
+  cityIds,
   regionLabel,
   boroughs,
   types,
-  onApply,
+  onResult,
 }: {
   city: string;
+  cityIds: string[];
   regionLabel: string;
   boroughs: string[];
   types: string[];
-  onApply: (f: Filters) => void;
+  onResult: (r: { city: string; filters: Filters }) => void;
 }) {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -42,10 +44,10 @@ export default function AskBar({
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question, city, regionLabel, boroughs, types }),
+        body: JSON.stringify({ question, city, cityIds, regionLabel, boroughs, types }),
       });
       const data = await res.json();
-      if (data.ok && data.filters) onApply(data.filters as Filters);
+      if (data.ok && data.filters) onResult({ city: data.city ?? city, filters: data.filters as Filters });
 
       if (data.ok && data.kind === "answer") {
         setResult({

@@ -20,6 +20,8 @@ interface Props {
   filtered: Project[];
   filters: Filters;
   onFiltersChange: (next: Filters) => void;
+  // Natural-language result: may switch city + apply filters together.
+  onAskResult: (r: { city: string; filters: Filters }) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
   fetchedAt: string | null;
@@ -51,6 +53,7 @@ export default function Sidebar({
   filtered,
   filters,
   onFiltersChange,
+  onAskResult,
   selectedId,
   onSelect,
   fetchedAt,
@@ -180,10 +183,11 @@ export default function Sidebar({
         {/* Plain-English search: NL question -> constrained filter via /api/ask. */}
         <AskBar
           city={activeCityId}
+          cityIds={cities.map((c) => c.id)}
           regionLabel={regionLabel}
           boroughs={boroughs}
           types={types}
-          onApply={onFiltersChange}
+          onResult={onAskResult}
         />
 
         {/* Analytical toggles: burden, supply gap, trends, vs target, expiring. */}

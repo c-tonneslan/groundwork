@@ -212,6 +212,72 @@ export function heuristicParse(
   return null;
 }
 
+// --- cross-city place resolution ------------------------------------------
+// A question can name a place that lives in a different city than the one on
+// screen ("how many units in Brooklyn" while viewing Philadelphia). This maps
+// the named place to its city so the caller can switch to it before answering,
+// instead of silently using the active city. Only cities that are actually
+// loaded (availableCityIds) are eligible.
+
+interface CityKeyword {
+  city: string;
+  aliases: string[];
+  // cross-city boroughs -> the canonical borough value stored in the data.
+  boroughs?: Record<string, string>;
+}
+
+const CITY_KEYWORDS: CityKeyword[] = [
+  {
+    city: "nyc",
+    aliases: ["new york city", "new york", "nyc"],
+    boroughs: { brooklyn: "Brooklyn", manhattan: "Manhattan", queens: "Queens", bronx: "Bronx", "staten island": "Staten Island" },
+  },
+  { city: "phl", aliases: ["philadelphia", "philly", "phila"] },
+  { city: "sfo", aliases: ["san francisco", "sf"] },
+  { city: "lax", aliases: ["los angeles"] },
+  { city: "dc", aliases: ["washington dc", "washington", "d.c."] },
+  { city: "chi", aliases: ["chicago"] },
+  { city: "bos", aliases: ["boston"] },
+  { city: "sea", aliases: ["seattle"] },
+  { city: "aus", aliases: ["austin"] },
+];
+
+function wordMatch(lower: string, phrase: string): boolean {
+  const esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(lower);
+}
+
+export function resolveCity(
+  question: string,
+  availableCityIds: string[],
+  activeCity: string,
+): { city: string; borough: string } {
+  const lower = question.toLowerCase();
+  const avail = new Set(availableCityIds);
+
+  // Boroughs first (most specific); longest alias wins.
+  let bestB: { city: string; borough: string; len: number } | null = null;
+  for (const k of CITY_KEYWORDS) {
+    if (!avail.has(k.city) || !k.boroughs) continue;
+    for (const [alias, canon] of Object.entries(k.boroughs)) {
+      if (wordMatch(lower, alias) && (!bestB || alias.length > bestB.len)) bestB = { city: k.city, borough: canon, len: alias.length };
+    }
+  }
+  if (bestB) return { city: bestB.city, borough: bestB.borough };
+
+  // Then city names.
+  let bestC: { city: string; len: number } | null = null;
+  for (const k of CITY_KEYWORDS) {
+    if (!avail.has(k.city)) continue;
+    for (const alias of k.aliases) {
+      if (wordMatch(lower, alias) && (!bestC || alias.length > bestC.len)) bestC = { city: k.city, len: alias.length };
+    }
+  }
+  if (bestC) return { city: bestC.city, borough: "" };
+
+  return { city: activeCity, borough: "" };
+}
+
 // Build the parameterized WHERE clauses for a validated filter, mirroring
 // /api/projects exactly. Caller supplies city as $1; filters start at
 // `startIndex`. Returns clause fragments (joined with AND by the caller) and
