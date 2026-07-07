@@ -3,7 +3,7 @@
 // validated result. Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { interpretModelOutput, validateFilters } from "../lib/ask.ts";
+import { interpretModelOutput, validateFilters, heuristicParse } from "../lib/ask.ts";
 
 const V = {
   boroughs: ["Brooklyn", "Manhattan", "Queens"],
@@ -83,4 +83,47 @@ test("json embedded in prose/markdown is extracted", () => {
   );
   assert.equal(out.kind, "filter");
   if (out.kind === "filter") assert.equal(out.filters.borough, "Manhattan");
+});
+
+// --- deterministic parser (the offline first stage) ---
+
+test("parser: borough + type + year -> filter", () => {
+  const out = heuristicParse("new construction in Brooklyn since 2020", V);
+  assert.equal(out?.kind, "filter");
+  if (out?.kind === "filter") {
+    assert.equal(out.filters.borough, "Brooklyn");
+    assert.equal(out.filters.type, "New Construction");
+    assert.equal(out.filters.startYear, 2020);
+  }
+});
+
+test("parser: 'how many units in Brooklyn' -> answer total_units", () => {
+  const out = heuristicParse("how many units in Brooklyn", V);
+  assert.equal(out?.kind, "answer");
+  if (out?.kind === "answer") {
+    assert.equal(out.metric, "total_units");
+    assert.equal(out.filters.borough, "Brooklyn");
+  }
+});
+
+test("parser: 'how many projects in Queens' -> answer count", () => {
+  const out = heuristicParse("how many projects in Queens", V);
+  assert.equal(out?.kind, "answer");
+  if (out?.kind === "answer") assert.equal(out.metric, "count");
+});
+
+test("parser: 'large' maps to a minUnits threshold", () => {
+  const out = heuristicParse("large developments in Manhattan", V);
+  assert.equal(out?.kind, "filter");
+  if (out?.kind === "filter") assert.ok(out.filters.minUnits >= 100);
+});
+
+test("parser: transit/bedroom/price questions refuse", () => {
+  assert.equal(heuristicParse("projects near the subway", V)?.kind, "refuse");
+  assert.equal(heuristicParse("three bedroom units", V)?.kind, "refuse");
+  assert.equal(heuristicParse("the cheapest apartments", V)?.kind, "refuse");
+});
+
+test("parser: returns null when it can't tell (escalate to model)", () => {
+  assert.equal(heuristicParse("tell me something interesting", V), null);
 });

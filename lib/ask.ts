@@ -113,6 +113,105 @@ export function interpretModelOutput(
   return { kind: "filter", filters, interpretation: interpretation || "Filter applied." };
 }
 
+// --- deterministic parser -------------------------------------------------
+// A fast, zero-cost, offline first pass. It handles the common shapes (a
+// borough name, "new construction", "since 2020", "over 100 units", "how many
+// units in X") without any model call. Returns null when it isn't confident, so
+// the caller can escalate to the LLM (or, with no key, show a hint). Being a
+// pure function, it's unit-tested alongside the model path.
+
+const REFUSE_PATTERNS: [RegExp, string][] = [
+  [/\b(subway|transit|train|metro|bus|station|commute)\b/, "I can't filter by transit or subway proximity — try a borough or project size."],
+  [/\b(closest|nearest)\b|\bnear (the |a )?(subway|station|downtown|park|water|transit)\b|\bwithin\b.{0,15}\b(mile|minute|km|block)/, "I can't do distance or proximity filters — try filtering by borough."],
+  [/rent[- ]?burden|burdened|displacement|evict|gentrif/, "Rent burden and displacement aren't project filters — see the rent-burden layer and the supply-demand gap panel."],
+  [/\bbedroom|\b\d\s?br\b|\bstudio\b|family[- ]?sized/, "I can't filter by bedroom mix or unit size."],
+  [/\bcheap|\bprice|\bcost\b|how much|\bexpir|at risk/, "I can't filter by price or expiring affordability."],
+];
+
+function matchBorough(lower: string, boroughs: string[]): string {
+  let best = "";
+  for (const b of boroughs) {
+    const bl = b.toLowerCase();
+    if (lower.includes(bl) && bl.length > best.length) best = b;
+  }
+  return best;
+}
+
+function matchType(lower: string, types: string[]): string {
+  for (const t of types) {
+    const tl = t.toLowerCase();
+    if (tl.includes("new") && /\bnew\b/.test(lower) && /(construction|build|development)/.test(lower)) return t;
+    if (tl.includes("preserv") && /preserv|rehab|renovat/.test(lower)) return t;
+  }
+  for (const t of types) if (lower.includes(t.toLowerCase())) return t;
+  return "";
+}
+
+function matchMinUnits(lower: string): number {
+  const m =
+    lower.match(/(?:over|at least|more than|minimum(?: of)?|min|>=?)\s*([\d,]+)\s*units?/) ??
+    lower.match(/([\d,]+)\s*\+?\s*units?\s*(?:or more|and up|\+|or larger)/) ??
+    lower.match(/([\d,]+)\+\s*units?/);
+  if (m) return Math.max(0, Math.min(100000, parseInt(m[1].replace(/,/g, ""), 10) || 0));
+  if (/\b(large|big|major|sizable|substantial|huge)\b/.test(lower)) return 100;
+  return 0;
+}
+
+function matchYear(lower: string, maxYear: number): number | null {
+  let y: number | null = null;
+  const m = lower.match(/(?:since|after|from|starting(?: in)?|newer than|>=?)\s*((?:19|20)\d{2})/);
+  if (m) y = parseInt(m[1], 10);
+  if (y == null) {
+    const m2 = lower.match(/\b((?:19|20)\d{2})\b/);
+    if (m2 && /since|after|from|newer|recent|past|last/.test(lower)) y = parseInt(m2[1], 10);
+  }
+  if (y != null && (y < 1900 || y > maxYear)) y = null;
+  return y;
+}
+
+function matchMetric(lower: string): AnswerMetric | null {
+  if (/(how many|number of|total|sum of|count of).{0,20}units|units.{0,10}(total|count)/.test(lower)) return "total_units";
+  if (/income tier|by tier|ami breakdown|affordability breakdown|breakdown by income/.test(lower)) return "units_by_tier";
+  if (/what years|date range|years.{0,10}span|span.{0,10}years|oldest|newest|earliest|latest|when were|time range/.test(lower)) return "date_range";
+  if (/how many (projects|developments|buildings)|number of (projects|developments)|count of|how many are there/.test(lower)) return "count";
+  return null;
+}
+
+function describeScope(f: AskFilters): string {
+  const parts: string[] = [];
+  if (f.type) parts.push(f.type);
+  if (f.minUnits > 0) parts.push(`≥${f.minUnits.toLocaleString()} units`);
+  if (f.borough) parts.push(f.borough);
+  if (f.startYear != null) parts.push(`since ${f.startYear}`);
+  return parts.join(" · ") || "all projects";
+}
+
+export function heuristicParse(
+  question: string,
+  opts: { boroughs: string[]; types: string[]; maxYear: number },
+): AskResult | null {
+  const lower = question.toLowerCase();
+  for (const [re, msg] of REFUSE_PATTERNS) if (re.test(lower)) return { kind: "refuse", refusal: msg };
+
+  const filters: AskFilters = {
+    query: "",
+    borough: matchBorough(lower, opts.boroughs),
+    type: matchType(lower, opts.types),
+    minUnits: matchMinUnits(lower),
+    startYear: matchYear(lower, opts.maxYear),
+  };
+  const metric = matchMetric(lower);
+  if (metric) {
+    const label = { count: "Projects", total_units: "Total units", units_by_tier: "Units by income tier", date_range: "Date range" }[metric];
+    return { kind: "answer", metric, filters, interpretation: `${label} · ${describeScope(filters)}` };
+  }
+
+  const hasScope = !!filters.borough || !!filters.type || filters.minUnits > 0 || filters.startYear != null;
+  if (hasScope) return { kind: "filter", filters, interpretation: describeScope(filters) };
+
+  return null;
+}
+
 // Build the parameterized WHERE clauses for a validated filter, mirroring
 // /api/projects exactly. Caller supplies city as $1; filters start at
 // `startIndex`. Returns clause fragments (joined with AND by the caller) and

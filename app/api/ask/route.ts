@@ -1,22 +1,27 @@
 // POST /api/ask
 //
-// Natural-language search + grounded Q&A. The model maps a plain-English
-// question onto one of three intents (see lib/ask): "filter" (narrow the map),
-// "answer" (compute a cited number over a filter scope), or "refuse". It never
-// writes SQL — it picks a metric and a filter, both whitelisted here, and the
-// answer runs as a fixed parameterized aggregate.
+// Natural-language search + grounded Q&A with a two-stage router:
+//   1. A deterministic parser (lib/ask heuristicParse) handles the common
+//      shapes offline — zero cost, zero latency, works with NO API key.
+//   2. Anything it isn't confident about escalates to the LLM (if a key is set),
+//      which maps the question onto the same intents. Most queries never reach
+//      the model, so the paid path is the exception, not the rule.
+//
+// Either way the model/parser never writes SQL: it picks a filter (whitelisted
+// here) or an answer metric that runs as a fixed parameterized aggregate.
 //
 // Hardening: per-IP rate limit + a short-TTL response cache keyed on the
-// question, so repeat asks are free and the paid API can't be trivially spammed.
-// Both are in-memory (per serverless instance); swap for Upstash Redis if you
-// need cross-instance limits.
+// question. Both are in-memory (per serverless instance); swap for Upstash if
+// you need cross-instance limits.
 
 import { NextResponse } from "next/server";
 import { db, hasDatabase } from "@/lib/db";
 import {
   buildSystemPrompt,
+  heuristicParse,
   interpretModelOutput,
   buildProjectWhere,
+  type AskResult,
   type AskFilters,
   type AnswerMetric,
 } from "@/lib/ask";
@@ -109,7 +114,6 @@ async function computeAnswer(cityId: string, metric: AnswerMetric, filters: AskF
       `moderate ${(row.moderate ?? 0).toLocaleString()} · ` +
       `middle ${(row.middle ?? 0).toLocaleString()} units.`;
   } else {
-    // date_range
     const r = await db.query<{ earliest: number | null; latest: number | null; n: number }>(
       `SELECT EXTRACT(YEAR FROM MIN(p.start_date))::int AS earliest,
               EXTRACT(YEAR FROM MAX(p.start_date))::int AS latest,
@@ -122,7 +126,6 @@ async function computeAnswer(cityId: string, metric: AnswerMetric, filters: AskF
     detail = { earliest, latest, projects: n };
   }
 
-  // Cite the largest matching projects so the number is inspectable.
   const cites = await db.query<{ name: string; borough: string | null; units_total: number }>(
     `SELECT p.name, p.borough, p.units_total FROM projects p WHERE ${where} ORDER BY p.units_total DESC NULLS LAST LIMIT 5`,
     p,
@@ -140,22 +143,32 @@ async function computeAnswer(cityId: string, metric: AnswerMetric, filters: AskF
   };
 }
 
-export async function POST(req: Request) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    return NextResponse.json(
-      { ok: false, refusal: "Natural-language search isn't configured on this deployment." },
-      { status: 200 },
-    );
+// Shape a validated AskResult into the wire response.
+async function buildResponse(result: AskResult, city: string, source: "rules" | "model"): Promise<unknown> {
+  if (result.kind === "refuse") return { ok: false, refusal: result.refusal, source };
+  if (result.kind === "answer" && hasDatabase()) {
+    return { ...(await computeAnswer(city, result.metric, result.filters, result.interpretation)), source };
   }
+  // filter, or answer with no DB to aggregate against -> just apply the scope
+  return { ok: true, kind: "filter", filters: result.filters, interpretation: result.interpretation, source };
+}
 
+async function askModel(question: string, system: string): Promise<string> {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY!, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: MODEL, max_tokens: 400, temperature: 0, system, messages: [{ role: "user", content: question }] }),
+  });
+  if (!resp.ok) throw new Error(`anthropic ${resp.status}: ${await resp.text().catch(() => "")}`);
+  const data = (await resp.json()) as { content?: { type: string; text?: string }[] };
+  return (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
+}
+
+export async function POST(req: Request) {
   const now = Date.now();
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (rateLimited(ip, now)) {
-    return NextResponse.json(
-      { ok: false, refusal: "Too many questions in a short window — give it a moment." },
-      { status: 429 },
-    );
+    return NextResponse.json({ ok: false, refusal: "Too many questions in a short window — give it a moment." }, { status: 429 });
   }
 
   let body: AskBody;
@@ -178,40 +191,25 @@ export async function POST(req: Request) {
   const cached = cacheGet(cacheKey, now);
   if (cached) return NextResponse.json(cached);
 
+  const maxYear = new Date().getFullYear() + 5;
+
   try {
-    const resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 400,
-        temperature: 0,
-        system: buildSystemPrompt(regionLabel, boroughs, types),
-        messages: [{ role: "user", content: question }],
-      }),
-    });
-
-    if (!resp.ok) {
-      console.error("anthropic error", resp.status, await resp.text().catch(() => ""));
-      return NextResponse.json({ ok: false, refusal: "The language model is unavailable right now." }, { status: 200 });
-    }
-
-    const data = (await resp.json()) as { content?: { type: string; text?: string }[] };
-    const text = (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("");
-    const result = interpretModelOutput(text, { boroughs, types, maxYear: new Date().getFullYear() + 5 });
-
+    // Stage 1: deterministic parser (free, offline).
+    const heur = heuristicParse(question, { boroughs, types, maxYear });
     let responseBody: unknown;
-    if (result.kind === "refuse") {
-      responseBody = { ok: false, refusal: result.refusal };
-    } else if (result.kind === "answer") {
-      if (!hasDatabase()) {
-        // Fall back to just applying the scope filter when we can't aggregate.
-        responseBody = { ok: true, kind: "filter", filters: result.filters, interpretation: result.interpretation };
-      } else {
-        responseBody = await computeAnswer(city, result.metric, result.filters, result.interpretation);
-      }
+
+    if (heur) {
+      responseBody = await buildResponse(heur, city, "rules");
+    } else if (process.env.ANTHROPIC_API_KEY) {
+      // Stage 2: escalate to the model for the long tail.
+      const text = await askModel(question, buildSystemPrompt(regionLabel, boroughs, types));
+      responseBody = await buildResponse(interpretModelOutput(text, { boroughs, types, maxYear }), city, "model");
     } else {
-      responseBody = { ok: true, kind: "filter", filters: result.filters, interpretation: result.interpretation };
+      responseBody = {
+        ok: false,
+        refusal:
+          "I couldn't parse that. Try something like “new construction in Brooklyn since 2020” or “how many units in Queens”. (Free-form questions need ANTHROPIC_API_KEY configured.)",
+      };
     }
 
     cacheSet(cacheKey, responseBody, now);
