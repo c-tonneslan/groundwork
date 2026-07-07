@@ -346,7 +346,9 @@ export default function HomePage() {
       if (filters.type && p.constructionType !== filters.type) return false;
       if (filters.minUnits > 0 && p.units.total < filters.minUnits) return false;
       if (filters.startYear != null) {
-        const y = p.startDate ? parseInt(p.startDate.slice(0, 4), 10) : 0;
+        // Fall back to completion date for completion-only cities (Philadelphia).
+        const d = p.startDate ?? p.completionDate;
+        const y = d ? parseInt(d.slice(0, 4), 10) : 0;
         if (!Number.isFinite(y) || y < filters.startYear) return false;
       }
       if (q) {

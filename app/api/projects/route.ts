@@ -89,7 +89,9 @@ export async function GET(req: Request) {
     params.push(min);
   }
   if (year) {
-    where.push(`EXTRACT(YEAR FROM p.start_date)::int >= $${i++}`);
+    // Fall back to completion date so completion-only cities (Philadelphia)
+    // aren't dropped entirely by a start-year filter.
+    where.push(`EXTRACT(YEAR FROM COALESCE(p.start_date, p.completion_date))::int >= $${i++}`);
     params.push(year);
   }
 
@@ -157,6 +159,7 @@ export async function GET(req: Request) {
       id: String(r.external_id),
       name: String(r.name ?? ""),
       startDate: r.start_date instanceof Date ? r.start_date.toISOString().slice(0, 10) : (r.start_date as string | null),
+      completionDate: r.completion_date instanceof Date ? r.completion_date.toISOString().slice(0, 10) : (r.completion_date as string | null),
       borough: r.borough as string | null,
       address: r.address as string | null,
       postcode: r.postcode as string | null,

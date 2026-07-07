@@ -136,7 +136,7 @@ export async function GET(req: Request) {
     params.push(min);
   }
   if (year) {
-    where.push(`EXTRACT(YEAR FROM p.start_date)::int >= $${i++}`);
+    where.push(`EXTRACT(YEAR FROM COALESCE(p.start_date, p.completion_date))::int >= $${i++}`);
     params.push(year);
   }
 

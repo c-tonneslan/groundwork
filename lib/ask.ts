@@ -244,7 +244,9 @@ export function buildProjectWhere(
     params.push(filters.minUnits);
   }
   if (filters.startYear != null) {
-    clauses.push(`EXTRACT(YEAR FROM p.start_date)::int >= $${i++}`);
+    // Fall back to completion date: some cities (e.g. Philadelphia) only
+    // publish completion dates, so filtering on start_date alone drops them all.
+    clauses.push(`EXTRACT(YEAR FROM COALESCE(p.start_date, p.completion_date))::int >= $${i++}`);
     params.push(filters.startYear);
   }
   return { clauses, params };

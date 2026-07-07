@@ -5,6 +5,7 @@ export interface Project {
   id: string;
   name: string;
   startDate: string | null;
+  completionDate: string | null;
   borough: string | null;
   address: string | null;
   postcode: string | null;

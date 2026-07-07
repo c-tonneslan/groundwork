@@ -87,8 +87,11 @@ export default function Sidebar({
   const yearOptions = useMemo(() => {
     const years = new Set<number>();
     for (const p of allProjects) {
-      if (!p.startDate) continue;
-      const y = parseInt(p.startDate.slice(0, 4), 10);
+      // Fall back to completion date so completion-only cities (Philadelphia)
+      // still get a populated year filter.
+      const d = p.startDate ?? p.completionDate;
+      if (!d) continue;
+      const y = parseInt(d.slice(0, 4), 10);
       if (Number.isFinite(y)) years.add(y);
     }
     return Array.from(years).sort((a, b) => b - a);
